@@ -914,6 +914,43 @@ different causes — `.error` is almost always an unregistered scene, and
 `.userCancelled` is the system declining rather than anything the app did. The
 toggle now says which.
 
+## The jitter was a lag (round 18, 2026-08-23)
+
+*"when arc sweep is activated, it's doing the offset jitter, and arc start
+contributes when arc sweep is active. Did we not already fix this?"*
+
+We fixed a different bug with the same symptom. Round 12 folded the origin ring
+into `contentCenter` so the layout stopped SWINGING. What was left was a
+shimmer — and it was a one-frame lag, not a wobble.
+
+`metrics` is published by the component through `onResolve`, so the host's copy
+is always LAST frame's answer. The icons were drawn from this frame's solve and
+the origin from the previous one. Hold anything still and they agree; drag a
+slider that moves `contentCenter` — arc sweep, arc start, gutter, icon size —
+and they are permanently one frame apart, so the whole layout trails the hand.
+
+The fix is to stop reading it back. `resolved()` is pure, so the stage now solves
+its OWN metrics each frame and uses those for the origin and for arrange mode's
+dashed seats. Twice the arithmetic, exact agreement.
+
+What stays on the published copy: the knob panel's readouts and warnings. A
+number in a text row can be one frame old and nobody can tell. GEOMETRY cannot.
+
+The loop that does not exist, and must not: `available` still comes from
+`anchor`, never from `origin`. metrics → available → metrics is the real feedback
+loop, and it is the reason the published value was being used in the first place.
+
+## Dialling twelve
+
+`icons` stopped at the LIST length, so with eight categories the ceiling of
+twelve was invisible and "dial in 12 icons" simply did not work.
+
+The slider now runs 2–12 always, and dragging up past the end of the list MAKES
+categories — placeholders, ready to be named. This is a construct tool: asking
+for twelve should produce twelve seats to fill, not refuse on the grounds that
+you have not filled them yet. Dragging back down never deletes, so the gesture is
+reversible — which is exactly what makes it safe to be that eager.
+
 ## Where this is heading
 
 The menu is meant to be summoned **on whatever you're gazing at** — an object, empty space, or

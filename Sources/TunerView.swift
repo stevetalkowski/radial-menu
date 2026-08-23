@@ -360,13 +360,30 @@ struct TunerView: View {
                 //
                 // Preview only: during a real gesture the origin IS the pinch
                 // point, and moving it would break the one contract the component
-                // has. `available` is deliberately measured from `anchor` and not
-                // from this — it feeds `resolved()`, and metrics -> available ->
-                // metrics would be a feedback loop.
+                // has.
+                //
+                // SOLVED HERE, not read back from `metrics`. That is the jitter
+                // fix, and it was a lag rather than a wobble: `metrics` is
+                // published by the component through `onResolve`, so it is always
+                // LAST frame's answer. The icons were drawn from this frame's
+                // solve and the origin from the previous one, so on a slider drag
+                // — arc sweep, arc start, anything that moves `contentCenter` —
+                // the two were permanently one frame out of step and the whole
+                // layout shimmered along behind the hand.
+                //
+                // `resolved()` is pure, so calling it twice a frame costs
+                // arithmetic and buys exact agreement. `available` still comes
+                // from `anchor` and never from `origin`: THAT would be a real
+                // loop, metrics → available → metrics.
+                let room = centredRoom(at: CGPoint(x: anchor.x, y: anchor.y - tray),
+                                       in: field)
+                let m = style.resolved(itemCount: visibleItems.count,
+                                       maxChildren: visibleItems.map(\.children.count).max() ?? 0,
+                                       available: room)
                 let origin = menuShown
                     ? anchor
-                    : CGPoint(x: anchor.x - metrics.contentCenter.x,
-                              y: anchor.y - metrics.contentCenter.y)
+                    : CGPoint(x: anchor.x - m.contentCenter.x,
+                              y: anchor.y - m.contentCenter.y)
 
                 if inRoom {
                     // ONE scene draws a menu at a time. Both would publish
@@ -392,8 +409,7 @@ struct TunerView: View {
                            // Handing it the full stage reported "fit 100%" while
                            // a corner pinch drew (and happily hit-tested) icons
                            // past the window edge where they could not be seen.
-                           available: centredRoom(at: CGPoint(x: anchor.x, y: anchor.y - tray),
-                                                  in: field),
+                           available: room,
                            preview: previewOn ? previewPose : nil,
                            onResolve: { metrics = $0 })
                     .position(origin)
@@ -405,7 +421,10 @@ struct TunerView: View {
                     // into their own projects, and it has no business knowing an
                     // editor exists. It publishes its metrics; the editor reads
                     // them and draws on top.
-                    arrangeLayer(origin: origin, width: geo.size.width)
+                    // The same fresh solve, for the same reason: dashed seats
+                    // read from last frame's metrics would drift off the icons
+                    // they are targets for, every time a knob moved.
+                    arrangeLayer(origin: origin, width: geo.size.width, m)
                 }
             }
             .coordinateSpace(name: Self.stageSpace)
@@ -513,10 +532,11 @@ struct TunerView: View {
     private static let stageSpace = "radialMenuStage"
 
     @ViewBuilder
-    private func arrangeLayer(origin: CGPoint, width: CGFloat) -> some View {
-        seatTargets(origin: origin, width: width)
-        itemTray(origin: origin, width: width)
-        dragProxy
+    private func arrangeLayer(origin: CGPoint, width: CGFloat,
+                              _ m: RadialMenuMetrics) -> some View {
+        seatTargets(origin: origin, width: width, m)
+        itemTray(origin: origin, width: width, m)
+        dragProxy(m)
     }
 
     // MARK: the dashed seats
@@ -527,13 +547,14 @@ struct TunerView: View {
     ///
     /// Seat k holds item k, always — there is no window and nothing scrolls.
     @ViewBuilder
-    private func seatTargets(origin: CGPoint, width: CGFloat) -> some View {
-        let seats = max(min(metrics.seats, config.icons), 0)
+    private func seatTargets(origin: CGPoint, width: CGFloat,
+                             _ m: RadialMenuMetrics) -> some View {
+        let seats = max(min(m.seats, config.icons), 0)
         ForEach(Array(0..<seats), id: \.self) { k in
-            let c = seatCenter(k, origin: origin)
+            let c = seatCenter(k, origin: origin, m)
             let lit = drag?.target == k
             let filled = k < allItems.count
-            let d = metrics.iconSize * (lit ? 1.30 : 1.14)
+            let d = m.iconSize * (lit ? 1.30 : 1.14)
 
             Circle()
                 .strokeBorder(lit ? Color.accentColor : Color.secondary.opacity(0.5),
@@ -548,17 +569,17 @@ struct TunerView: View {
             // keep growing when a drop is pending without swallowing the drag.
             if filled {
                 Color.clear
-                    .frame(width: metrics.iconSize, height: metrics.iconSize)
+                    .frame(width: m.iconSize, height: m.iconSize)
                     .contentShape(Circle())
                     .position(c)
                     .onTapGesture { picked = allItems[k].id }
-                    .gesture(moveGesture(from: k, origin: origin, width: width))
+                    .gesture(moveGesture(from: k, origin: origin, width: width, m))
             }
         }
     }
 
-    private func seatCenter(_ k: Int, origin: CGPoint) -> CGPoint {
-        let s = metrics.seat(k)
+    private func seatCenter(_ k: Int, origin: CGPoint, _ m: RadialMenuMetrics) -> CGPoint {
+        let s = m.seat(k)
         return CGPoint(x: origin.x + s.x, y: origin.y + s.y)
     }
 
@@ -591,7 +612,8 @@ struct TunerView: View {
     }
 
     @ViewBuilder
-    private func itemTray(origin: CGPoint, width: CGFloat) -> some View {
+    private func itemTray(origin: CGPoint, width: CGFloat,
+                          _ m: RadialMenuMetrics) -> some View {
         let pitch = trayPitch(width)
         let side = min(pitch - 10, 58)
         let y = Self.trayTop + Self.trayHeight / 2
@@ -611,7 +633,7 @@ struct TunerView: View {
 
             ForEach(Array(allItems.enumerated()), id: \.element.id) { i, item in
                 trayChip(item, index: i, side: side, showLabel: pitch >= 56,
-                         origin: origin, width: width)
+                         origin: origin, width: width, m)
                     .position(x: trayX(i, width), y: y + 6)
             }
 
@@ -633,11 +655,12 @@ struct TunerView: View {
 
     @ViewBuilder
     private func trayChip(_ item: RadialMenuItem, index i: Int, side: CGFloat,
-                          showLabel: Bool, origin: CGPoint, width: CGFloat) -> some View {
+                          showLabel: Bool, origin: CGPoint, width: CGFloat,
+                          _ m: RadialMenuMetrics) -> some View {
         // Beyond `icons` an item is still in the list, just not on the ring.
         // Dimmed rather than hidden: "off the menu" is a state you need to see
         // in order to drag something back out of it.
-        let onRing = i < min(config.icons, max(metrics.seats, 1))
+        let onRing = i < min(config.icons, max(m.seats, 1))
         let isPicked = picked == item.id
         let lifted = drag?.source == i
 
@@ -670,7 +693,7 @@ struct TunerView: View {
         .opacity(lifted ? 0.2 : (onRing ? 1 : 0.45))
         .contentShape(Rectangle())
         .onTapGesture { picked = isPicked ? nil : item.id }
-        .gesture(moveGesture(from: i, origin: origin, width: width))
+        .gesture(moveGesture(from: i, origin: origin, width: width, m))
     }
 
     // MARK: dragging
@@ -679,14 +702,15 @@ struct TunerView: View {
     /// dragged — an index into `allItems` — so there is one recogniser, one
     /// hit-test and one move. Anything else would be two code paths that have to
     /// agree about where a drop lands.
-    private func moveGesture(from i: Int, origin: CGPoint, width: CGFloat) -> some Gesture {
+    private func moveGesture(from i: Int, origin: CGPoint, width: CGFloat,
+                             _ m: RadialMenuMetrics) -> some Gesture {
         DragGesture(minimumDistance: 6, coordinateSpace: .named(Self.stageSpace))
             .onChanged { v in
-                let t = dropTarget(v.location, origin: origin, width: width)
+                let t = dropTarget(v.location, origin: origin, width: width, m)
                 drag = ArrangeDrag(source: i, at: v.location, target: t)
             }
             .onEnded { v in
-                let t = dropTarget(v.location, origin: origin, width: width)
+                let t = dropTarget(v.location, origin: origin, width: width, m)
                 drag = nil
                 guard let t, t != i else { return }
                 moveItem(from: i, to: t)
@@ -695,15 +719,16 @@ struct TunerView: View {
 
     /// What a drop at `p` would do. Seats win over the tray when both are in
     /// range, because the ring is what the drag is FOR.
-    private func dropTarget(_ p: CGPoint, origin: CGPoint, width: CGFloat) -> Int? {
-        let seats = max(min(metrics.seats, config.icons), 0)
+    private func dropTarget(_ p: CGPoint, origin: CGPoint, width: CGFloat,
+                            _ m: RadialMenuMetrics) -> Int? {
+        let seats = max(min(m.seats, config.icons), 0)
         var best: (index: Int, distance: CGFloat)?
         for k in 0..<seats {
-            let c = seatCenter(k, origin: origin)
+            let c = seatCenter(k, origin: origin, m)
             let d = hypot(p.x - c.x, p.y - c.y)
             // Half the pitch, so the catch areas tile the ring without
             // overlapping — the same rule the pick itself uses.
-            guard d <= max(metrics.iconSize, metrics.pitch / 2) else { continue }
+            guard d <= max(m.iconSize, m.pitch / 2) else { continue }
             if best == nil || d < best!.distance { best = (k, d) }
         }
         if let best { return best.index }
@@ -714,9 +739,9 @@ struct TunerView: View {
     /// The thing under your hand while it is in flight. Drawn at the top of the
     /// ZStack so it passes over both the tray and the ring.
     @ViewBuilder
-    private var dragProxy: some View {
+    private func dragProxy(_ m: RadialMenuMetrics) -> some View {
         if let d = drag, allItems.indices.contains(d.source) {
-            let side = max(metrics.iconSize * 0.7, 44)
+            let side = max(m.iconSize * 0.7, 44)
             ZStack {
                 Circle().fill(.regularMaterial)
                 Circle().strokeBorder(Color.accentColor, lineWidth: 2)
@@ -1140,7 +1165,7 @@ struct TunerView: View {
     @ViewBuilder
     private var countKnobs: some View {
         knob("hold", bindDouble(\.hold), 0...1.2, "s")
-        knob("icons", bindIcons(), 2...Double(min(max(allItems.count, 3), MenuModel.maxIcons)), "")
+        knob("icons", bindIcons(), 2...Double(MenuModel.maxIcons), "")
         caption(iconsBlurb)
     }
 
@@ -1148,14 +1173,14 @@ struct TunerView: View {
     /// says none of them: it stops at your LIST length, so with eight categories
     /// it stops at eight and the ceiling of twelve is invisible.
     private var iconsBlurb: String {
-        let n = allItems.count, cap = MenuModel.maxIcons
-        if n > cap {
-            return "\(config.icons) of your \(n) — a ring tops out at \(cap), a clock face. Put the rest in sub-menus; depth is free, breadth is not."
+        let on = config.icons, n = allItems.count, cap = MenuModel.maxIcons
+        if on >= cap {
+            return "a full clock face, and the ceiling. Past twelve a hand stops being able to aim without looking, and the answer is a sub-menu rather than a bigger ring."
         }
-        if n == cap {
-            return "all \(cap) — a full clock face, and the ceiling. More than this and a hand stops being able to aim without looking."
+        if n > on {
+            return "\(on) on the ring; your other \(n - on) are in the tray, dimmed. Drag one onto a seat in ARRANGE to swap it in."
         }
-        return "\(config.icons) of \(n), all on screen — there is no scrolling, because an item that moves is an item your hand cannot learn. The ring holds up to \(cap); add categories in ARRANGE to use more."
+        return "\(on) on the ring, all of them on screen — nothing scrolls, because an item that moves is an item your hand cannot learn. Drag up to \(cap) and past the end of your list it makes new categories for you to name."
     }
 
     // MARK: the responsive block
@@ -1728,9 +1753,41 @@ struct TunerView: View {
     }
     private func bindIcons() -> Binding<Double> {
         Binding(get: { Double(config.icons) },
-                set: { var c = config
-                       c.icons = min(max(Int($0.rounded()), 2), MenuModel.maxIcons)
-                       config = c })
+                set: { v in
+                    let want = min(max(Int(v.rounded()), 2), MenuModel.maxIcons)
+                    // Dragging UP past the end of the list MAKES categories.
+                    //
+                    // The slider used to stop at whatever you happened to have,
+                    // which meant the ceiling of twelve was invisible with eight
+                    // items and "dial in 12 icons" simply did not work. This is a
+                    // CONSTRUCT tool: asking for twelve should produce twelve
+                    // seats to fill, not refuse on the grounds that you have not
+                    // filled them yet.
+                    //
+                    // Dragging back down never deletes — the extras stay in the
+                    // tray — so the gesture is reversible, which is what makes it
+                    // safe to be this eager.
+                    if want > allItems.count { fillTo(want) }
+                    var c = config
+                    c.icons = want
+                    config = c
+                })
+    }
+
+    /// Grow the list to `n` with placeholder categories, ready to be named.
+    private func fillTo(_ n: Int) {
+        guard n > allItems.count else { return }
+        var out = allItems
+        var bump = out.count
+        while out.count < n {
+            bump += 1
+            var id = "item.\(bump)"
+            while out.contains(where: { $0.id == id }) { bump += 1; id = "item.\(bump)" }
+            out.append(.init(id: id, systemImage: "circle", label: "New \(bump)"))
+        }
+        allItems = out
+        symbolReport = validateSymbols()
+        saveItemsSoon()
     }
     /// Snaps the top of the range to a true full turn. An arc that stops just
     /// short — 359.5° — is not "almost a ring": the last seat lands half a degree
