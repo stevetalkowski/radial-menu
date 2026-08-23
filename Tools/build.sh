@@ -17,6 +17,14 @@
 #   ./Tools/build.sh all             mac + vision + phone + pad, skipping any
 #                                    device you have not put a UDID in local.env for
 #
+#   ./Tools/build.sh clean vision    wipe the derived data first
+#
+# Reach for `clean` when a change to the PROJECT rather than to a source file
+# does not seem to have taken. Info.plist is the one that bites: it is generated
+# from INFOPLIST_KEY_* build settings, and an incremental build will happily keep
+# serving the copy it made before you changed them — so the app runs with a plist
+# hours older than its own binary and nothing says so.
+#
 # One target failing stops the run — there is no point installing to three
 # devices when the code does not compile.
 #
@@ -157,6 +165,16 @@ if [ $# -eq 0 ]; then
   TARGETS=(mac)
 else
   TARGETS=("$@")
+fi
+
+# `clean` is a pseudo-target: it wipes and gets out of the way, so it composes
+# with the real ones rather than being a separate mode.
+if [ "${TARGETS[0]:-}" = "clean" ]; then
+  echo "── clean · removing $ROOT/build"
+  rm -rf "$ROOT/build"
+  mkdir -p "$ROOT/build"
+  TARGETS=("${TARGETS[@]:1}")
+  [ ${#TARGETS[@]} -eq 0 ] && TARGETS=(mac)
 fi
 
 # `all` expands to everything you can actually reach from this machine. A device

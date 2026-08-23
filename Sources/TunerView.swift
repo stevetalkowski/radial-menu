@@ -286,7 +286,11 @@ struct TunerView: View {
                     note("the system cancelled the immersive space")
                 case .error:
                     model.spatialOn = false
-                    note("the immersive space errored — scene not registered?")
+                    // Deliberately not naming a cause. The first version guessed
+                    // "scene not registered", which sent us looking in the Swift
+                    // and was wrong — the scene was in the binary all along. The
+                    // plist was stale.
+                    note("the immersive space refused to open — try ./Tools/build.sh clean vision")
                 @unknown default:
                     model.spatialOn = false
                     note("unknown result opening the immersive space")
