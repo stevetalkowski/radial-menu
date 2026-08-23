@@ -68,7 +68,12 @@ struct SpatialMenuView: View {
             // No material, no rounded rectangle, no border. The absence IS the
             // feature — this is the view that tells you whether the menu reads on
             // its own or has been leaning on a panel behind it.
-            Color.clear.contentShape(Rectangle())
+            //
+            // Not `Color.clear`, though. An indirect pinch is aimed by GAZE, and
+            // gaze needs something to land on; fully transparent content is not
+            // reliably a target. A thousandth of an alpha is invisible and is
+            // unambiguously there.
+            Color.white.opacity(0.001).contentShape(Rectangle())
 
             // A hairline of the plane's own bounds while you are POSITIONING it.
             // Not in live: chrome is the one thing this view exists to remove.
@@ -78,6 +83,26 @@ struct SpatialMenuView: View {
                 Rectangle()
                     .strokeBorder(.white.opacity(0.10),
                                   style: StrokeStyle(lineWidth: 2, dash: [18, 14]))
+            }
+
+            // LIVE, with nothing summoned: say where to pinch.
+            //
+            // The window has always had this — it is the hint under the stage's
+            // material. In the room it matters more, not less: there the plane is
+            // invisible by design, so without it you are being asked to pinch at
+            // a patch of your living room and guess whether anything received it.
+            // Which is exactly the position this round started in.
+            if !model.previewOn && !model.menuShown {
+                VStack(spacing: 12) {
+                    Image(systemName: MenuPlatform.invocationGlyph)
+                        .font(.system(size: 54, weight: .light))
+                    Text(MenuPlatform.hint(for: model.layout))
+                        .font(.title3)
+                    Text("anywhere on this plane — the menu appears where you pinch")
+                        .font(.caption)
+                }
+                .foregroundStyle(.white.opacity(0.55))
+                .allowsHitTesting(false)
             }
 
             let c = CGPoint(x: Self.planeSide / 2, y: Self.planeSide / 2)
