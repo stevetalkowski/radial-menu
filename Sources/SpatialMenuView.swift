@@ -35,8 +35,16 @@ struct SpatialMenuView: View {
     private static let attachmentID = "radialmenu.attachment"
 
     /// The plane the menu lives on, in POINTS. Big enough for any tuning the
-    /// canvas can reach, and transparent, so the slack costs nothing to look at.
+    /// canvas can reach, and transparent, so the slack costs nothing to LOOK at.
+    /// It costs plenty to PINCH through, which is what `interactiveSide` is for.
     private static let planeSide: CGFloat = 1400
+
+    /// How much of the plane accepts a pinch: the menu's own footprint, with a
+    /// little room to summon it off-centre, and never the whole plane.
+    private var interactiveSide: CGFloat {
+        let canvas = model.metrics.canvas
+        return min(Self.planeSide, max(canvas * 1.15, 320))
+    }
 
     var body: some View {
         RealityView { content, attachments in
@@ -65,15 +73,28 @@ struct SpatialMenuView: View {
 
     private var plane: some View {
         ZStack {
-            // No material, no rounded rectangle, no border. The absence IS the
-            // feature — this is the view that tells you whether the menu reads on
-            // its own or has been leaning on a panel behind it.
+            // THE INTERACTIVE SURFACE, and note the two things bounding it.
             //
-            // Not `Color.clear`, though. An indirect pinch is aimed by GAZE, and
-            // gaze needs something to land on; fully transparent content is not
-            // reliably a target. A thousandth of an alpha is invisible and is
-            // unambiguously there.
-            Color.white.opacity(0.001).contentShape(Rectangle())
+            // It exists only in LIVE. In preview there is nothing to pinch, and
+            // a hit-testable plane hanging in front of you is not neutral — an
+            // indirect pinch is aimed by gaze, so an invisible surface between
+            // you and the window swallows every glance meant for the panel
+            // behind it. A full-plane version of this left no way to reach the
+            // toggle that turns it off. Preview now hit-tests nothing at all.
+            //
+            // And it is the size of the MENU, not the size of the plane. The
+            // plane is deliberately oversized so no tuning can outgrow it; that
+            // is a layout allowance, and turning a layout allowance into a
+            // gaze-blocking wall was the actual mistake.
+            //
+            // Not `Color.clear`: gaze needs something to land on, and fully
+            // transparent content is not a reliable target. A thousandth of an
+            // alpha is invisible and unambiguously there.
+            if !model.previewOn {
+                Color.white.opacity(0.001)
+                    .frame(width: interactiveSide, height: interactiveSide)
+                    .contentShape(Rectangle())
+            }
 
             // A hairline of the plane's own bounds while you are POSITIONING it.
             // Not in live: chrome is the one thing this view exists to remove.
@@ -83,6 +104,7 @@ struct SpatialMenuView: View {
                 Rectangle()
                     .strokeBorder(.white.opacity(0.10),
                                   style: StrokeStyle(lineWidth: 2, dash: [18, 14]))
+                    .allowsHitTesting(false)
             }
 
             // LIVE, with nothing summoned: say where to pinch.
