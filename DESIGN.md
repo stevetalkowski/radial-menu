@@ -1039,6 +1039,77 @@ Quads — Gizmo, Edit, Sculpt, SubD wire — so it reads as a plausible menu ins
 of a bag of verbs. `reset categories` restores them, which is also the only way
 back from a list you have made a mess of.
 
+## Measuring a collision without preventing it (round 21, 2026-08-23)
+
+*"when i'm doing the arc sweep — when 12 icons are specified, the 11th icon
+overlaps the 12/midnight top icon and then snaps correctly when 360 degrees is
+hit."*
+
+The packer solved the ring from the ADJACENT step. On an arc short of a full
+turn there is a second pair: the WRAP, last seat back round onto first, `360 −
+sweep` apart. Below `360·(n−1)/n` the neighbours are tighter and the wrap is
+irrelevant. Above it the wrap is tighter — 330° at twelve icons — and the packer
+was solving for the wrong angle entirely.
+
+The galling part: **that measurement already existed.** The gutter readout at the
+bottom of `resolved()` takes `min(step, wrapDeg)`, with a comment explaining why
+the wrap can be the worst pair. It just never fed the solve. So the panel would
+correctly report icons overlapping while the packer insisted everything was fine.
+We were measuring the collision and not preventing it, which is worse than not
+measuring it at all — the diagnostic was right there being ignored.
+
+`packStep = min(step, wrapDeg)` now. Clearance is flat at 13.6 pt across the
+whole sweep range instead of collapsing above 330°.
+
+### And the snap had to learn to count
+
+Solving for the wrap means the ring grows as the arc closes, and near the top it
+grows absurdly: 853 pt at 354° with twelve icons, which `fit` then shrinks the
+entire menu to survive. The old snap was a fixed `>= 355`, which is far too
+permissive for a crowded ring and needlessly eager for a sparse one.
+
+The rule is now count-aware: once the wrap has fallen below HALF a step, you meant
+a full ring. 344° at twelve icons, 309° at four.
+
+## What counts as a guide (round 21b)
+
+The `guidesOn` switch above lasted about twenty minutes, because it swept the
+pointer, its spoke and the rubber band off along with the tuning overlays.
+
+Those are not instrumentation. They exist BECAUSE of a usability complaint — a
+reviewer pointing out that between icons nothing changes, so the hand steers
+blind — and a visible cursor bounded to the widget was the answer. They are on in
+the shipped defaults. They are the design.
+
+The same error as counting the origin ring as a guide, made again four rounds
+later. The line is not "does it help you tune", because everything helps you
+tune. It is: **would this be in the build you hand somebody?** By that test
+exactly one thing in the list is a guide — the dashed sub-menu trigger and its
+dotted landing circle — and it already had its own toggle.
+
+So the switch is gone, and with it `displayStyle`, which existed only to serve
+it. What replaced it is the fix the complaint actually deserved: every draw
+toggle now lives in ONE always-visible group. The pointer switches used to sit
+inside the preview-only section, so in LIVE — the mode where you are using the
+thing — none of them could be reached. Anyone who does not want a visible cursor
+turns off one toggle, and nothing decides it for them.
+
+## One switch for the guides
+
+The pointer, its spoke, the rubber band and the sub-menu trigger lines each had a
+toggle, and every one of those toggles lived in a section that only appears in
+PREVIEW — so in LIVE, the mode where you most want to see the menu as a user
+would, there was no way to turn any of them off.
+
+`guidesOn` is one switch, in the always-visible section. What it does NOT touch:
+the origin ring, the label, the sub-menu arrow. Those are the menu's design, not
+instrumentation on top of it.
+
+It also introduced a distinction worth keeping: `style` is the TUNING and is what
+gets exported; `displayStyle` is what a scene draws. Hiding the guides is a way
+of looking at the menu, not a property of it, and the exporter must never bake a
+temporary view preference into somebody else's file.
+
 ## Where this is heading
 
 The menu is meant to be summoned **on whatever you're gazing at** — an object, empty space, or

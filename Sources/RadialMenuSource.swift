@@ -4,7 +4,7 @@
 //  A verbatim copy of RadialMenu.swift so the app can emit a self-contained
 //  export at runtime. Regenerate with Tools/embed-source.sh.
 //
-//  Source: Sources/RadialMenu.swift  (1819 lines, EMBED-VERSION 7)
+//  Source: Sources/RadialMenu.swift  (1838 lines, EMBED-VERSION 7)
 //
 
 enum RadialMenuSource {
@@ -748,10 +748,29 @@ extension RadialMenuStyle {
 
         if responsive {
             pitch = icon * (1 + max(gutterRatio, 0))
-            // Smallest radius where the chord between neighbours still clears
-            // the gutter. Clamped at a half-turn: past 180° the sine folds back
-            // and would start growing the ring again for no reason.
-            let half = min(max(step * .pi / 360, 0.0001), .pi / 2)
+
+            // Solve from the TIGHTEST pair, which on a nearly-closed arc is not
+            // the neighbours — it is the wrap, last seat back round onto first.
+            //
+            // This measurement already existed, in the gutter readout at the
+            // bottom of this function, complete with a comment explaining why the
+            // wrap can be the worst pair. It just never fed the SOLVE. So the
+            // panel would correctly report icons overlapping while the packer sat
+            // there insisting everything was fine — we were measuring the
+            // collision and not preventing it.
+            //
+            // With twelve icons the two are equal at 330° (an open arc's spacing
+            // matches a closed ring's at exactly 360·(n−1)/n); above that the
+            // wrap is tighter, and the ring now grows to keep it clear rather
+            // than letting the ends run into each other.
+            let wrapDeg = closedRing ? step : max(360 - arcSweepDegrees, 0)
+            let packStep = closedRing ? step : min(step, wrapDeg)
+            // Clamped at a half-turn: past 180° the sine folds back and would
+            // start growing the ring again for no reason. Floored well above
+            // zero because the wrap gap goes there — an arc at 359.9° wants an
+            // infinite radius, and `arc sweep` snaps to a full ring before it
+            // can ask for one.
+            let half = min(max(packStep * .pi / 360, 0.004), .pi / 2)
             let packed = pitch / (2 * CGFloat(sin(half)))
             ring = max(packed, icon * 0.75) * max(ringSlack, 0.2)
         } else {

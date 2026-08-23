@@ -90,6 +90,7 @@ final class MenuModel {
     /// distance between them is what `arc sweep` changes. Hence a switch.
     var centreOnIcons = false
 
+
     // MARK: live — written by whichever scene currently has the hand
 
     var menuShown = false

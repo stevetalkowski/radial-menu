@@ -492,7 +492,7 @@ struct TunerView: View {
                     Text(hint).font(.title3)
                 }
                 .foregroundStyle(.secondary)
-                .opacity(menuShown || previewOn ? 0 : 1)
+                .opacity(menuShown || previewOn || inRoom ? 0 : 1)
                 .animation(.easeOut(duration: style.easeDuration), value: menuShown)
             }
             .padding(24)
@@ -901,9 +901,10 @@ struct TunerView: View {
                 Text(item.id).font(.caption2).foregroundStyle(.secondary)
                 Spacer()
                 Button(role: .destructive) { deleteItem(i) } label: {
-                    Image(systemName: "trash")
+                    Label("delete", systemImage: "trash")
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(.bordered)
+                .tint(.red)
                 .disabled(allItems.count <= 2)
             }
             TextField("label", text: itemLabel(i)).textFieldStyle(.roundedBorder)
@@ -1160,8 +1161,6 @@ struct TunerView: View {
                         : "ORIGIN — nothing moves. Also what a LIVE gesture does, since there the origin is your pinch, so preview and live agree. On an arc the icons sit off to one side, because on an arc they do.")
             }
             caption(previewBlurb)
-            Divider().padding(.vertical, 4)
-            pointerControls
         } else {
             caption("LIVE — \(MenuPlatform.gestureNoun) on the stage to use the menu for real. Switch to preview to lay it out.")
         }
@@ -1250,6 +1249,9 @@ struct TunerView: View {
                 knob("child spread", bindStyleDouble(\.childSpread), 10...180, "°")
                 regionPicker
                 knob("arc start", bindStyleDouble(\.arcStartDegrees), -180...360, "°")
+                caption(config.style.arcSweepDegrees >= 359.9
+                        ? "on a FULL ring this repeats every step — \(deg(metrics.stepDegrees)) at \(metrics.seats) icons. 0° and \(deg(metrics.stepDegrees)) draw an identical ring; what moved is which ITEM sits at 12 o'clock."
+                        : "rotates the whole arc. 0° puts the first item at 12 o'clock.")
                 knob("arc sweep", bindArcSweep(), 30...360, "°")
             } else {
                 ratio("child pitch", bind(\.childSpacingScale), 0.5...1.6,
@@ -1293,6 +1295,9 @@ struct TunerView: View {
                 knob("child spread", bindStyleDouble(\.childSpread), 10...180, "°")
                 regionPicker
                 knob("arc start", bindStyleDouble(\.arcStartDegrees), -180...360, "°")
+                caption(config.style.arcSweepDegrees >= 359.9
+                        ? "on a FULL ring this repeats every step — \(deg(metrics.stepDegrees)) at \(metrics.seats) icons. 0° and \(deg(metrics.stepDegrees)) draw an identical ring; what moved is which ITEM sits at 12 o'clock."
+                        : "rotates the whole arc. 0° puts the first item at 12 o'clock.")
                 knob("arc sweep", bindArcSweep(), 30...360, "°")
             } else {
                 knob("row pitch", bind(\.linearSpacing), 40...220, "pt")
@@ -1409,9 +1414,20 @@ struct TunerView: View {
 
     @ViewBuilder
     private var togglesAndPresets: some View {
-        Toggle("label", isOn: bindBool(\.showLabel))
-        Toggle("submenu guide", isOn: bindBool(\.showSubmenuGuide))
-        Toggle("submenu arrow", isOn: bindBool(\.showSubmenuArrow))
+        // EVERYTHING that gets drawn, in one place, visible in every mode.
+        //
+        // These used to be split: label and the sub-menu flags here, the pointer
+        // and the centre ring inside the preview-only section. Which meant that
+        // in LIVE — the mode where you are actually using the thing — none of
+        // the pointer switches could be reached at all.
+        Group {
+            Text("what gets drawn").font(.subheadline.weight(.semibold))
+            Toggle("label", isOn: bindBool(\.showLabel))
+            Toggle("submenu arrow", isOn: bindBool(\.showSubmenuArrow))
+            Toggle("submenu guide", isOn: bindBool(\.showSubmenuGuide))
+            caption("the dashed trigger and its dotted landing circle: a TUNING overlay, and the one thing in this list nobody ships. Everything else here is the menu's design.")
+        }
+        pointerControls
         Group {
             Toggle("open on highlight", isOn: bindBool(\.submenuOnHighlight))
             caption(config.style.submenuOnHighlight
@@ -1459,10 +1475,16 @@ struct TunerView: View {
     }
     #endif
 
-    /// The pointer is invisible by design — it is the component's whole input
-    /// contract, not a thing on screen. That is also exactly the usability
-    /// complaint: between icons nothing changes, so the hand is steering blind.
-    /// These turn it into something you can see.
+    /// The pointer WAS invisible by design — it is the component's whole input
+    /// contract, not a thing on screen. That was also exactly the usability
+    /// complaint from a reviewer: between icons nothing changes, so the hand is
+    /// steering blind. These turn it into something you can see.
+    ///
+    /// Which makes them FEEDBACK, not instrumentation, and they are on in the
+    /// shipped defaults. An earlier version of the "guides" switch swept them off
+    /// along with the tuning overlays — the same error as counting the origin
+    /// ring as a guide, and wrong for the same reason. Anyone who does not want a
+    /// visible cursor turns off the one toggle; nothing else decides for them.
     @ViewBuilder
     private var pointerControls: some View {
         Toggle("show pointer", isOn: bindBool(\.showPointer))
@@ -1847,15 +1869,26 @@ struct TunerView: View {
         symbolReport = validateSymbols()
         saveItemsSoon()
     }
-    /// Snaps the top of the range to a true full turn. An arc that stops just
-    /// short — 359.5° — is not "almost a ring": the last seat lands half a degree
-    /// from the first and the two icons sit on top of each other, while every
-    /// adjacent pair still measures fine. There is nothing useful in 355...360.
+    /// Snaps the top of the range to a true full turn — and the threshold has to
+    /// know the icon COUNT, which the old fixed 355 did not.
+    ///
+    /// An arc short of a full turn leaves a WRAP gap of `360 − sweep` between its
+    /// last seat and its first. As the sweep closes, that gap shrinks while the
+    /// ring has to grow to keep it clear, and near the top it grows absurdly —
+    /// 853 pt at 354° with twelve icons, which `fit` then shrinks the whole menu
+    /// to survive.
+    ///
+    /// So: once the wrap has fallen below HALF a step, you meant a full ring.
+    /// That lands at 344° for twelve icons and 309° for four, instead of one
+    /// fixed number that was far too permissive for a crowded ring and needlessly
+    /// eager for a sparse one.
     private func bindArcSweep() -> Binding<Double> {
         Binding(get: { config.style.arcSweepDegrees },
                 set: { v in
+                    let n = Double(max(metrics.seats, 2))
+                    let step = v / max(n - 1, 1)
                     var c = config
-                    c.style.arcSweepDegrees = v >= 355 ? 360 : v
+                    c.style.arcSweepDegrees = (360 - v) < step / 2 ? 360 : v
                     config = c
                 })
     }
