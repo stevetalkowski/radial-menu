@@ -1205,6 +1205,7 @@ struct TunerView: View {
 
         // The base unit. In responsive mode this is the only length you need.
         knob("icon size", bind(\.iconSize), 24...160, "pt")
+        caption(iconSizeBlurb)
 
         if config.style.responsive {
             ratio("gutter", bind(\.gutterRatio), 0...1.2,
@@ -1634,6 +1635,22 @@ struct TunerView: View {
         let shown = uniq.prefix(5).joined(separator: ", ")
         return "\(uniq.count) symbol\(uniq.count == 1 ? "" : "s") not found — these draw blank: "
             + shown + (uniq.count > 5 ? " …" : "")
+    }
+
+    /// The question this answers gets asked by everyone exactly once: why does
+    /// raising `icon size` grow the whole dial instead of growing the icons in
+    /// place? Because that is what "base unit" means, and the alternative is the
+    /// bug responsive mode was built to remove.
+    private var iconSizeBlurb: String {
+        guard config.style.responsive else {
+            return "ABSOLUTE — the icons grow on their own centres and the ring stays where it is, so eventually they touch. That collision is exactly what responsive mode exists to make impossible."
+        }
+        switch layout {
+        case .radial:
+            return "the BASE UNIT: the ring is solved FROM this, so bigger icons mean a bigger ring and the whole dial scales. To grow icons in PLACE, lower `gutter` instead — they eat the gap and the ring holds."
+        case .vertical, .horizontal:
+            return "the BASE UNIT: the pitch is solved FROM this, so bigger icons spread the column. To grow icons in PLACE, lower `gutter` instead — they eat the gap and the pitch holds."
+        }
     }
 
     private var submenuBlurb: String {

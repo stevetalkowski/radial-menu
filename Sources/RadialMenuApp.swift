@@ -19,6 +19,15 @@ struct RadialMenuApp: App {
     /// One source of truth for what the menu IS. Panel state stays in the panel.
     @State private var model = MenuModel()
 
+    #if os(visionOS)
+    /// Declared as the existential and bound properly, rather than
+    /// `.constant(.mixed)` inline. The inline form may or may not infer
+    /// `Binding<any ImmersionStyle>` depending on the toolchain, and this is the
+    /// documented spelling — not worth a coin-flip on the one file that only
+    /// gets compiled when you build for the headset.
+    @State private var immersion: ImmersionStyle = .mixed
+    #endif
+
     /// Named once, used by the scene and by the button that opens it.
     static let spatialSpaceID = "radialmenu.spatial"
 
@@ -35,7 +44,7 @@ struct RadialMenuApp: App {
         // Mixed: the point is to see the menu against your actual room, at your
         // actual arm's length. Full immersion would answer a question nobody
         // asked.
-        .immersionStyle(selection: .constant(.mixed), in: .mixed)
+        .immersionStyle(selection: $immersion, in: .mixed)
         #endif
     }
 }

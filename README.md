@@ -33,6 +33,36 @@ Nothing overlaps because nothing *can* — the constraint is the layout.
 That is also what makes the export portable: it ships **ratios**, not points.
 A set of absolute values is only correct at the size it was tuned at.
 
+### Icon size is the base unit, so it scales the whole dial
+
+This surprises everyone exactly once. In responsive mode, raising `icon size`
+does not grow the icons in place — it grows the **ring** with them, and the
+layout scales as a unit. That is not a side effect, it is the constraint being
+satisfied: the ring radius is *defined* as the one that keeps `gutter` clear
+between icon rims, so bigger icons need a bigger ring or they collide.
+
+If what you want is bigger icons on the **same** ring, that is a different
+intent, and it has a different knob — lower the `gutter` and the icons eat the
+gap:
+
+| | icon | gutter | ring |
+|---|---|---|---|
+| start | 75.7 | 0.449 | **116.6** |
+| icon +19%, gutter unchanged | 90.0 | 0.449 | 138.7 — the dial grew |
+| icon +19%, gutter 0.218 | 90.0 | 0.218 | **116.6** — the ring held |
+
+"Make the menu bigger" and "make the icons fill more of it" are two different
+things. Responsive mode is what separates them.
+
+Turn `responsive` **off** and `ringRadius` becomes its own absolute knob again:
+the icons then grow on their own centres, the ring stays put, and eventually they
+touch. That collision is the bug responsive mode exists to make impossible. The
+absolute mode is kept so a hand-placed layout can be pinned exactly, not because
+it is the better way to work.
+
+Switch on **measure guides** and drag each knob — the dashed circle is the ring,
+the bright segment is the gutter it was solved for.
+
 ### It does not scroll, on purpose
 
 Every item a menu has is on screen. Eight is the comfortable number; twelve is
@@ -249,7 +279,7 @@ Everything is live, and the panel prints what each ratio resolves to in points.
 
 | knob | what it does |
 |---|---|
-| **icon size** | the base unit — everything else follows it |
+| **icon size** | the base unit — the ring is solved from it, so this scales the whole dial |
 | **gutter** | required clear space between icon rims. The rule the ring radius is solved from. |
 | **hand gain** | control–display gain. How far the pointer moves per unit of hand movement. The one that matters most in a headset. |
 | **nudge spread** | how far the highlight's pop-out spreads to neighbours. Above 0 you get continuous feedback *between* icons instead of all-or-nothing. |

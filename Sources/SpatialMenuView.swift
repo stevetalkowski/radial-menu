@@ -49,10 +49,20 @@ struct SpatialMenuView: View {
                 // live gesture by its origin, because during a gesture the
                 // origin IS the pinch and moving it would break the one contract
                 // the component has.
+                // Solved here rather than read back from `model.metrics`, for
+                // the same reason the pane does it: the published copy is always
+                // last frame's answer, so the icons and the origin would be one
+                // frame apart whenever a knob moved. Dormant while `centre on`
+                // is `origin` — but a latent version of a bug already fixed once
+                // is just the bug, waiting.
+                let m = model.style.resolved(
+                    itemCount: model.visibleItems.count,
+                    maxChildren: model.visibleItems.map(\.children.count).max() ?? 0,
+                    available: nil)
                 let origin = (model.menuShown || !model.centreOnIcons)
                     ? anchor
-                    : CGPoint(x: anchor.x - model.metrics.contentCenter.x,
-                              y: anchor.y - model.metrics.contentCenter.y)
+                    : CGPoint(x: anchor.x - m.contentCenter.x,
+                              y: anchor.y - m.contentCenter.y)
 
                 RadialMenu(items: model.visibleItems,
                            style: model.style,
