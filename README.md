@@ -55,7 +55,7 @@ gap:
 things. Responsive mode is what separates them.
 
 Turn `responsive` **off** and `ringRadius` becomes its own absolute knob again:
-the icons then grow on their own centres, the ring stays put, and eventually they
+the icons then grow on their own centers, the ring stays put, and eventually they
 touch. That collision is the bug responsive mode exists to make impossible. The
 absolute mode is kept so a hand-placed layout can be pinned exactly, not because
 it is the better way to work.
@@ -162,7 +162,7 @@ the most direct test of the responsive layout there is.
 Copy `Sources/RadialMenu.swift` into your target. That's the whole install.
 
 The component is a pure **readout**: it never takes input itself. You feed it a
-pointer offset from the menu's centre for as long as your gesture is held, and
+pointer offset from the menu's center for as long as your gesture is held, and
 read `highlight` back when it ends. That one-value contract is why the same view
 works off a mouse, a finger and a pinch.
 

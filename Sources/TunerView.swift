@@ -245,14 +245,14 @@ struct TunerView: View {
 
     var body: some View {
         // Siblings, not an overlay. The stage's GeometryReader now measures
-        // exactly the space it owns, so the preview centres on what you can SEE
+        // exactly the space it owns, so the preview centers on what you can SEE
         // and `fit` is true by construction — no panel width written down twice.
         SplitStage {
             ZStack(alignment: .topLeading) {
                 stage
                 VStack(alignment: .leading, spacing: 4) {
                     Text("last confirmed: \(lastConfirmed)")
-                    // The centre hint is hidden while the menu is up, so while
+                    // The center hint is hidden while the menu is up, so while
                     // previewing it moves here — otherwise nothing on screen
                     // would say how to actually invoke the thing.
                     if previewOn { Text("PREVIEW — switch to live to use it") }
@@ -332,7 +332,7 @@ struct TunerView: View {
     private var stageField: some View {
         GeometryReader { geo in
             // The tray is a real STRIP of the stage, not a floating bar. The
-            // menu is then centred in what is left, so turning arrange on slides
+            // menu is then centered in what is left, so turning arrange on slides
             // the ring down out of the way instead of parking a panel on top of
             // it — the same lesson SplitStage taught: siblings cannot lie to
             // each other about size.
@@ -342,7 +342,7 @@ struct TunerView: View {
             ZStack {
                 backdrop
 
-                // ALWAYS at the pinch point — never animate in from screen centre
+                // ALWAYS at the pinch point — never animate in from screen center
                 // it must appear exactly where the gesture began. menuCenter is
                 // set on pinch-down, before `menuShown` flips, so the eased
                 // appearance happens in place.
@@ -379,12 +379,12 @@ struct TunerView: View {
                 // arithmetic and buys exact agreement. `available` still comes
                 // from `anchor` and never from `origin`: THAT would be a real
                 // loop, metrics → available → metrics.
-                let room = centredRoom(at: CGPoint(x: anchor.x, y: anchor.y - tray),
+                let room = centeredRoom(at: CGPoint(x: anchor.x, y: anchor.y - tray),
                                        in: field)
                 let m = style.resolved(itemCount: visibleItems.count,
                                        maxChildren: visibleItems.map(\.children.count).max() ?? 0,
                                        available: room)
-                let origin = (menuShown || !model.centreOnIcons)
+                let origin = (menuShown || !model.centerOnIcons)
                     ? anchor
                     : CGPoint(x: anchor.x - m.contentCenter.x,
                               y: anchor.y - m.contentCenter.y)
@@ -407,7 +407,7 @@ struct TunerView: View {
                 RadialMenu(items: visibleItems, style: style, pointer: pointer,
                            isPresented: menuShown || previewOn, highlight: $model.highlight,
                            // The second half of responsive. NOT the stage size:
-                           // the menu is centred on the pinch, so the room it has
+                           // the menu is centered on the pinch, so the room it has
                            // is the largest box CENTRED THERE that still fits —
                            // half of it is whatever the nearest edge allows.
                            // Handing it the full stage reported "fit 100%" while
@@ -473,7 +473,7 @@ struct TunerView: View {
                     // Release CONFIRMS whatever is highlighted, then the menu goes.
                     if menuShown {
                         lastConfirmed = highlight.action == nil
-                            ? "cancelled (centre)" : highlight.labelText
+                            ? "cancelled (center)" : highlight.labelText
                     }
                     menuShown = false
                     pointer = nil
@@ -498,10 +498,10 @@ struct TunerView: View {
             .padding(24)
     }
 
-    /// The biggest box centred on `c` that still fits inside `size`, less the
+    /// The biggest box centered on `c` that still fits inside `size`, less the
     /// stage's own 24 pt inset on each side. Doubling the distance to the NEAREST
     /// edge is what makes a corner pinch shrink the menu instead of clipping it.
-    private func centredRoom(at c: CGPoint, in size: CGSize) -> CGSize {
+    private func centeredRoom(at c: CGPoint, in size: CGSize) -> CGSize {
         let w = 2 * min(c.x, size.width - c.x) - 48
         let h = 2 * min(c.y, size.height - c.y) - 48
         return CGSize(width: max(w, 1), height: max(h, 1))
@@ -1150,14 +1150,14 @@ struct TunerView: View {
             Group {
                 Toggle("pin arrows", isOn: $model.previewPose.pinArrows)
                 Toggle("measure guides", isOn: $model.previewPose.showGuides)
-                Picker("centre on", selection: $model.centreOnIcons) {
+                Picker("center on", selection: $model.centerOnIcons) {
                     Text("origin").tag(false)
                     Text("icons").tag(true)
                 }
                 .pickerStyle(.segmented)
                 .padding(.top, 2)
-                caption(model.centreOnIcons
-                        ? "ICONS — an arc is pulled back into the middle instead of hanging off a corner. But the box being held still changes SHAPE as `arc sweep` moves the ring radius, so its centre holds while the icons themselves travel."
+                caption(model.centerOnIcons
+                        ? "ICONS — an arc is pulled back into the middle instead of hanging off a corner. But the box being held still changes SHAPE as `arc sweep` moves the ring radius, so its center holds while the icons themselves travel."
                         : "ORIGIN — nothing moves. Also what a LIVE gesture does, since there the origin is your pinch, so preview and live agree. On an arc the icons sit off to one side, because on an arc they do.")
             }
             caption(previewBlurb)
@@ -1191,7 +1191,7 @@ struct TunerView: View {
     private var previewBlurb: String {
         let name = highlight.action?.label ?? "nothing"
         switch previewPose.depth {
-        case .menu: return "\(name) highlighted. Held still and centred on the icons — switch to LIVE to try it with your hand."
+        case .menu: return "\(name) highlighted. Held still and centered on the icons — switch to LIVE to try it with your hand."
         case .submenu: return "\(name) with its children out"
         }
     }
@@ -1419,7 +1419,7 @@ struct TunerView: View {
         // EVERYTHING that gets drawn, in one place, visible in every mode.
         //
         // These used to be split: label and the sub-menu flags here, the pointer
-        // and the centre ring inside the preview-only section. Which meant that
+        // and the center ring inside the preview-only section. Which meant that
         // in LIVE — the mode where you are actually using the thing — none of
         // the pointer switches could be reached at all.
         Group {
@@ -1505,12 +1505,15 @@ struct TunerView: View {
                     ? "pinned to the icons. Past them the dot stops dead and further hand travel is silent — cleaner, and it gives up the one cue that says you have gone too far."
                     : "between the icons and the menu's full extent. Display only: the PICK always reads your raw hand.")
             caption("bounds overshoot into EMPTY space only — land on a category with children and the dot is free to follow you out to them, whatever this says.")
+            if previewOn {
+                warn("LIVE only. A preview pose puts the pointer exactly ON a seat — there is no overshoot for this to bound, so the dot will not move however you drag it. The resolved figure above does change; switch to live to feel it.", .orange)
+            }
         }
-        Toggle("show centre", isOn: bindBool(\.showOrigin))
+        Toggle("show center", isOn: bindBool(\.showOrigin))
         if config.style.showOrigin {
-            ratio("centre size", bind(\.originScale), 0.05...6,
+            ratio("center size", bind(\.originScale), 0.05...6,
                   resolved: pt(metrics.iconSize * config.style.originScale))
-            ratio("centre weight", bind(\.originLineWidth), 0.002...0.2,
+            ratio("center weight", bind(\.originLineWidth), 0.002...0.2,
                   resolved: pt(metrics.iconSize * config.style.originLineWidth))
         }
     }
@@ -1706,7 +1709,7 @@ struct TunerView: View {
     /// bug responsive mode was built to remove.
     private var iconSizeBlurb: String {
         guard config.style.responsive else {
-            return "ABSOLUTE — the icons grow on their own centres and the ring stays where it is, so eventually they touch. That collision is exactly what responsive mode exists to make impossible."
+            return "ABSOLUTE — the icons grow on their own centers and the ring stays where it is, so eventually they touch. That collision is exactly what responsive mode exists to make impossible."
         }
         switch layout {
         case .radial:

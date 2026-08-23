@@ -40,7 +40,7 @@ struct SpatialMenuView: View {
     private static let planeSide: CGFloat = 1400
 
     /// How much of the plane accepts a pinch: the menu's own footprint, with a
-    /// little room to summon it off-centre, and never the whole plane.
+    /// little room to summon it off-center, and never the whole plane.
     private var interactiveSide: CGFloat {
         let canvas = model.metrics.canvas
         return min(Self.planeSide, max(canvas * 1.15, 320))
@@ -142,7 +142,7 @@ struct SpatialMenuView: View {
                 // its design size. The only place in the app where you see that.
                 available: nil)
 
-            let origin = (model.menuShown || !model.centreOnIcons)
+            let origin = (model.menuShown || !model.centerOnIcons)
                 ? anchor
                 : CGPoint(x: anchor.x - m.contentCenter.x, y: anchor.y - m.contentCenter.y)
 
@@ -179,7 +179,7 @@ struct SpatialMenuView: View {
                 holdTask?.cancel(); holdTask = nil
                 if model.menuShown {
                     model.lastConfirmed = model.highlight.action == nil
-                        ? "cancelled (centre)" : model.highlight.labelText
+                        ? "cancelled (center)" : model.highlight.labelText
                 }
                 model.menuShown = false
                 model.pointer = nil

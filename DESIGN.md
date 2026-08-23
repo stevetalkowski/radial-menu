@@ -41,7 +41,7 @@ From Steve's IDEA (IDEAS.md, 2026-08-09):
 | `Sources/RadialMenuApp.swift` | the shell. |
 
 The contract is one value: the **host** feeds the component a `pointer` offset (points, relative
-to the menu's centre) for as long as the pinch is held; the component publishes `highlight`; the
+to the menu's center) for as long as the pinch is held; the component publishes `highlight`; the
 host confirms it on release. That is the whole interface, and it is why the component can move.
 
 ## Why a gesture instead of hand tracking
@@ -62,13 +62,13 @@ its own placement grammar (Steve's calls, on device):
 
 | layout | shape | label | children |
 |---|---|---|---|
-| `radial` | ring | at the **centre** | fan **outward** past the ring |
+| `radial` | ring | at the **center** | fan **outward** past the ring |
 | `vertical` | column | **beside the highlighted icon**, right-justified left of the column | **right**, in a row |
 | `horizontal` | row | **under the highlighted icon**, below the row | **up**, in a column |
 
 In the linear layouts the label sits level with the icon you're on but stays on the OUTSIDE of
 the menu, clearing both the icons and any open sub-menu. In a column every name is
-**right-justified** to the same line; in a row it's centred under the icon.
+**right-justified** to the same line; in a row it's centered under the icon.
 
 **The label is not animated at all** — no cross-fade, no content transition, no eased resize. It
 is simply swapped. (The bounce Steve kept seeing was the animated TEXT WIDTH growing and
@@ -79,14 +79,14 @@ you're in a sub-menu.
 **Parents announce themselves:** an item with children wears a tiny triangle just off its rim,
 pointing the way those children will appear — along the spoke in radial, right off a column, up
 off a row. It retires once the sub-menu is out. The nudge leans the same way, so the two agree. A child
-**emerges from the selected icon's centre**: it starts on that icon at 70% and eases out to its
+**emerges from the selected icon's center**: it starts on that icon at 70% and eases out to its
 seat at full size.
 
 **Labels never travel.** The text cross-fades in place at its new spot; position changes are
 applied outside the animation on purpose. (Icons still ease — but in place, via the nudge.)
 
 ⚠️ Implementation note worth keeping: `.offset` does not move a view's LAYOUT frame, so a scale
-applied *outside* an offset pivots around the container's centre — which made the children look
+applied *outside* an offset pivots around the container's center — which made the children look
 like they grew out of the middle of the menu. The `Emerge` transition scales FIRST, then
 positions, so the pivot is the icon itself.
 
@@ -123,7 +123,7 @@ one constraint**, and everything else is a ratio resolved fresh each frame by
 `RadialMenuStyle.resolved(...)` into a `RadialMenuMetrics`.
 
 The constraint that does the work: neighbouring icons must sit `iconSize × (1 + gutter)`
-apart, centre to centre. In a row that IS the pitch. On a ring it is a chord, so the
+apart, center to center. In a row that IS the pitch. On a ring it is a chord, so the
 radius falls out of it:
 
 ```
@@ -140,7 +140,7 @@ Steve's round-1 numbers are the defaults, exactly: a gutter of **0.296×** gives
 tidy; the maths was fitted to the tuning.
 
 **Second half — `fit to window`.** The host passes the room it has and the menu shrinks
-uniformly rather than overflowing. The room is the largest box *centred on the pinch
+uniformly rather than overflowing. The room is the largest box *centered on the pinch
 point* — twice the distance to the nearest edge — so a corner pinch shrinks the menu
 instead of drawing half of it off-screen. Note this scales the **metrics**, not the
 view: a `.scaleEffect` would put the drawn geometry and the incoming pointer in
@@ -159,7 +159,7 @@ the pointer can reach.
 | | was | now |
 |---|---|---|
 | full ring + `visible` < icons | 360/(n−1) put the last seat **on top of** the first; only 2 items ever selectable, no scrolling | a closed ring can't scroll, so the window is ignored and the panel says so — window a **region** instead |
-| long list on a narrow arc | items past the ±180° wrap were drawn but **unselectable**, silently | wrap band centred on the arc's middle (≈2× the reach), and the panel names the limit |
+| long list on a narrow arc | items past the ±180° wrap were drawn but **unselectable**, silently | wrap band centered on the arc's middle (≈2× the reach), and the panel names the limit |
 | `arc sweep` 359.5 | last icon 0.5° from the first — 61 pt of overlap, reported as a healthy 18 pt gutter | slider snaps ≥355 → 360; the gutter now measures the **wrap** pair too |
 | 5 children, or a tight `child spread` | children overlapped silently; `childSpread` was the last absolute angle | spread is a *request* — floored at the angle that clears the gutter |
 | `hold` > 0 | menu appeared with **nothing highlighted**; releasing read "cancelled" unless you jiggled | pointer samples during the hold are picked up when it appears |
@@ -476,7 +476,7 @@ every layout bug in this file.
   pixel off the thing it is a target for.
 
 - **The tray is a real strip, not an overlay.** Same lesson `SplitStage` taught:
-  reserve the height in `stage`, and the menu centres in what is left. `104` is
+  reserve the height in `stage`, and the menu centers in what is left. `104` is
   written once and consumed by both the layout and the drop test.
 
 - **`menuInvocation(enabled:)`.** On macOS the invocation gesture is an AppKit
@@ -514,14 +514,14 @@ remaining room all read.
 The measure guides were drawn under the icons, which is right for the dashed ring
 (it should pass behind them) and wrong for the numbers. `ring 105 pt` was offset
 from the ring by `0.42 × icon` — exactly an icon's radius — so it landed dead
-centre on the top seat and could not be read at all. The readouts are now their
+center on the top seat and could not be read at all. The readouts are now their
 own layer, drawn last, pushed a full icon clear of the rim, and set on a dark
 capsule so they stay legible over whatever they land on.
 
 ### What to look for
 
 1. Preview → **arrange items**. Eight chips across the top, eight dashed rings on
-   the ring itself, the menu still live underneath and still centred.
+   the ring itself, the menu still live underneath and still centered.
 2. Drag **SubD** onto the top seat. It goes there; everything between shifts by
    one. `radialmenu-items.json` is rewritten 400 ms later.
 3. Drop **icons** to 3. Three seats, three outlines, five chips dimmed in the
@@ -580,12 +580,12 @@ outer children sideways instead of out.
 
 It goes into the position the transition resolves to rather than onto an
 `.offset` outside it — same reason the base position does. An offset applied
-outside the transition's scale pivots the animation on the menu's centre, and the
+outside the transition's scale pivots the animation on the menu's center, and the
 child appears to grow out of the middle instead of out of its parent.
 
-## The origin ring outgrew the centring rule (round 12, 2026-08-23)
+## The origin ring outgrew the centering rule (round 12, 2026-08-23)
 
-`contentCenter` was the fix for arcs swinging across the stage: centre the menu
+`contentCenter` was the fix for arcs swinging across the stage: center the menu
 on the middle of its SEATS rather than on its origin, because on a quadrant the
 origin sits in empty space off to one side of the icons.
 
@@ -696,7 +696,7 @@ loop wearing a different hat. `dialHead` is the middle of the window, always. A
 physical dial's spindle does not move because you turned the dial.
 
 **The trigger is DIRECTED.** In point mode a radial sub-menu opens on
-`hypot(p)` — distance from the centre, any direction. In dial mode sideways
+`hypot(p)` — distance from the center, any direction. In dial mode sideways
 travel IS the dial, so an undirected reach would open a sub-menu every time you
 turned it. It projects onto the head's across axis instead, and turning the dial
 contributes exactly zero to it.
@@ -951,13 +951,13 @@ for twelve should produce twelve seats to fill, not refuse on the grounds that
 you have not filled them yet. Dragging back down never deletes, so the gesture is
 reversible — which is exactly what makes it safe to be that eager.
 
-## Two centres, and no rule that pins both (round 19, 2026-08-23)
+## Two centers, and no rule that pins both (round 19, 2026-08-23)
 
 The jitter was a lag and is gone. What is left is a WOBBLE, and it is not a bug
 in `contentCenter` — it is `contentCenter` working exactly as specified against a
 premise that does not hold.
 
-`drawnBoundsCenter` pins the centre of a BOX: the union of the seat discs and the
+`drawnBoundsCenter` pins the center of a BOX: the union of the seat discs and the
 origin disc. Arc sweep changes the shape of that box violently, because the ring
 radius is solved from the step angle. At the shipped tuning, eight seats:
 
@@ -967,10 +967,10 @@ radius is solved from the step angle. At the shipped tuning, eight seats:
 | 180° | 25.7° | 201 pt |
 | 90° | 12.9° | 399 pt |
 
-A 3.4× change in radius. And at 90° the box's centre sits at **(187, −187)** from
+A 3.4× change in radius. And at 90° the box's center sits at **(187, −187)** from
 the origin, versus (0, 0) at a full ring. So dragging sweep slides the applied
-offset a quarter of a screen while the content triples in size. The box's centre
-is pinned perfectly; the icons travel anyway, because a box centre is not a thing
+offset a quarter of a screen while the content triples in size. The box's center
+is pinned perfectly; the icons travel anyway, because a box center is not a thing
 the eye tracks.
 
 There is no rule that pins both the origin and the icons. They are two different
@@ -978,14 +978,14 @@ points and `arc sweep` is precisely the knob that changes the distance between
 them. Round 11 pinned the icons and the origin swung; round 12 pinned the union
 and the whole thing drifts. Both complaints were correct.
 
-So it is a switch, `centre on`, and the default changed to **origin** for a
+So it is a switch, `center on`, and the default changed to **origin** for a
 reason beyond stability: in LIVE the origin is your pinch, so no offset is
 applied at all. Pinning the origin in preview is the only setting where preview
 and live are the same geometry. Preview claiming to be "the real thing held
-still" while quietly using a different centre was a smell before it was a
+still" while quietly using a different center was a smell before it was a
 complaint.
 
-Centring on icons stays, because it genuinely uses a window better — an arc gets
+Centering on icons stays, because it genuinely uses a window better — an arc gets
 pulled back into the middle instead of hanging off a corner. It is the right
 choice for looking at a finished arc and the wrong one for dragging the knob that
 shapes it.
@@ -993,7 +993,7 @@ shapes it.
 ## Content that only exists during a change (round 20, 2026-08-23)
 
 The immersive space opened and drew almost nothing. In preview: empty. Switching
-preview → live: the menu appeared for an instant, centred, and faded.
+preview → live: the menu appeared for an instant, centered, and faded.
 
 That symptom is the diagnosis. Position was identical in both modes, so it was
 never placement. What differed was that switching modes forced a re-render — and
@@ -1148,8 +1148,8 @@ ring while your hand keeps going and keeps working. Any other arrangement would
 have made this knob dangerous instead of cosmetic.
 
 **The floor is the icons, not the origin.** Zero would pin the dot to the menu's
-centre, which is a different thing and a useless one. 0 here means "stops on the
-icon centres", which is what was actually asked for.
+center, which is a different thing and a useless one. 0 here means "stops on the
+icon centers", which is what was actually asked for.
 
 **In the linear layouts the ACROSS floor is half an icon, not the seat line.**
 Across is the direction sub-menus open, and a dot welded to the column could
@@ -1193,4 +1193,4 @@ tight somewhere or pointless everywhere.
 The menu is meant to be summoned **on whatever you're gazing at** — an object, empty space, or
 the grid plane. This POC fakes that by using the pinch's own start location; in Quads the host
 would pass the gaze/object anchor instead. That is a host concern: the component only ever
-receives "the pointer is this far from the menu's centre".
+receives "the pointer is this far from the menu's center".

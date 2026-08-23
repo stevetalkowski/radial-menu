@@ -197,7 +197,7 @@ enum RadialMenuExport {
         // MARK: - Usage
         //
         // The component is a pure READOUT: it never takes input itself. You feed it a
-        // pointer offset from the menu's centre for as long as the gesture is held,
+        // pointer offset from the menu's center for as long as the gesture is held,
         // and read `highlight` back when the gesture ends. That one-value contract is
         // what lets the same view sit in a flat window here and in an ImmersiveSpace
         // later — swap the source of the offset, leave the menu alone.
@@ -221,7 +221,7 @@ enum RadialMenuExport {
         //                             isPresented: shown,
         //                             highlight: $highlight,
         //                             // The menu is CENTRED on `c`, so the room it
-        //                             // has is the largest box centred there — twice
+        //                             // has is the largest box centered there — twice
         //                             // the distance to the nearest edge. Passing
         //                             // geo.size instead lets a corner gesture draw
         //                             // half the menu off-screen at "fit 100%".

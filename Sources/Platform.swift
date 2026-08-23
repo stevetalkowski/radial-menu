@@ -287,7 +287,7 @@ struct DragCatcher: NSViewRepresentable {
 /// This used to be an overlay, and that was a real bug rather than a style
 /// choice. An overlay is painted on top of its base, so the stage's
 /// `GeometryReader` went on reporting the full window — including the 340 pt the
-/// panel was covering. Everything downstream inherited that: the preview centred
+/// panel was covering. Everything downstream inherited that: the preview centered
 /// itself on a rectangle extending under the panel, and `fit` reported 100% for
 /// room that was not there. Subtracting the panel width afterwards worked, but
 /// it wrote the panel's geometry down in a second place, and second places drift.

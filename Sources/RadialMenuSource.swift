@@ -28,7 +28,7 @@ enum RadialMenuSource {
 //  changes; the menu does not.
 //
 //  Interaction contract:
-//    • host sets `pointer` (points, relative to the menu's centre) every frame
+//    • host sets `pointer` (points, relative to the menu's center) every frame
 //      the gesture is held;
 //    • this view publishes `highlight` — the deepest item the pointer is over;
 //    • host reads `highlight` on release to confirm, then sets `isPresented`
@@ -51,7 +51,7 @@ enum RadialMenuSource {
 //  `RadialMenuStyle.resolved(...)` into a `RadialMenuMetrics`.
 //
 //  The constraint that does the real work: neighbouring icons must sit at least
-//  `iconSize × (1 + gutterRatio)` apart, centre to centre. In a row that IS the
+//  `iconSize × (1 + gutterRatio)` apart, center to center. In a row that IS the
 //  pitch. On a ring it's a chord, so the radius falls out of it:
 //
 //        chord = 2·R·sin(step/2) ≥ pitch     →     R = pitch / (2·sin(step/2))
@@ -214,7 +214,7 @@ struct RadialMenuStyle: Codable, Equatable {
 
     // MARK: ratios (responsive mode)
     /// Clear space between neighbouring icon RIMS, as a fraction of icon
-    /// diameter. Centre-to-centre pitch is `iconSize × (1 + gutterRatio)`.
+    /// diameter. Center-to-center pitch is `iconSize × (1 + gutterRatio)`.
     /// 0 = rims touching. The shipped radial default is 0.296; linear is 0.258.
     var gutterRatio: CGFloat = 0.4492
     /// Multiplier on the tightest-packing ring radius. 1 = as tight as the
@@ -323,7 +323,7 @@ struct RadialMenuStyle: Codable, Equatable {
     var labelRunwayScale: CGFloat = 8.39
 
     // MARK: absolutes (responsive == false)
-    /// Distance from centre to the icon ring (radial only).
+    /// Distance from center to the icon ring (radial only).
     var ringRadius: CGFloat = 225.3376
     /// Row/column pitch (vertical + horizontal layouts).
     var linearSpacing: CGFloat = 78
@@ -381,7 +381,7 @@ struct RadialMenuStyle: Codable, Equatable {
     var showPointer: Bool = true
     /// Dot diameter, × icon diameter.
     var pointerScale: CGFloat = 0.5
-    /// The dashed spoke from the centre out through the pointer. Not decoration
+    /// The dashed spoke from the center out through the pointer. Not decoration
     /// in radial: its ANGLE is literally the thing that picks.
     var showPointerTrail: Bool = true
     /// The line from the pointer to whatever it currently has — the "rubber
@@ -389,7 +389,7 @@ struct RadialMenuStyle: Codable, Equatable {
     /// the spoke says where you are, the leader says what that means.
     var showPointerLeader: Bool = true
     /// How far the visible pointer may travel, from the icons out to the menu's
-    /// full extent. 0 = it stops dead on the icon centres; 1 = it may run all
+    /// full extent. 0 = it stops dead on the icon centers; 1 = it may run all
     /// the way out to where the sub-menus land.
     ///
     /// Purely a DISPLAY bound — the pick reads the raw offset, so pulling this in
@@ -420,7 +420,7 @@ struct RadialMenuStyle: Codable, Equatable {
     var showOrigin: Bool = true
     /// Diameter of that ring, × icon diameter. Ranges well past 1 on purpose —
     /// at the small end it is a dot marking the origin, at the large end it is a
-    /// ring drawn around the centre label.
+    /// ring drawn around the center label.
     var originScale: CGFloat = 1.657
     /// Its stroke weight, × icon diameter. Independent of the diameter so a big
     /// ring can still be a hairline.
@@ -570,7 +570,7 @@ struct RadialMenuMetrics: Equatable {
     var iconSize: CGFloat = 62
     var childIconSize: CGFloat = 51
     var ringRadius: CGFloat = 105
-    /// Centre-to-centre spacing of neighbouring top-level icons (linear layouts).
+    /// Center-to-center spacing of neighbouring top-level icons (linear layouts).
     var pitch: CGFloat = 78
     var childSpacing: CGFloat = 66
     var nudge: CGFloat = 8.5
@@ -679,7 +679,7 @@ extension RadialMenuMetrics {
     /// A seat's position relative to the menu's origin, before the nudge.
     ///
     /// This lives on the METRICS rather than on the view so that the drawing, the
-    /// hit-testing, the preview pose and the content-centring all read one
+    /// hit-testing, the preview pose and the content-centering all read one
     /// function. Every time this logic has been duplicated it has drifted.
     func seat(_ slot: Int) -> CGPoint { seatAt(Double(slot)) }
 
@@ -689,7 +689,7 @@ extension RadialMenuMetrics {
     /// it because a symmetric radius cancels. Both stopped being true when the
     /// origin ring grew up: at `originScale 1.66` it is a 125 pt circle with the
     /// menu's label inside it, and on a quarter-arc it is the one thing NOT in
-    /// the arc. Centring on the seats alone pinned the arc beautifully and swung
+    /// the arc. Centering on the seats alone pinned the arc beautifully and swung
     /// that ring — and the label with it — most of a ring radius off the anchor.
     ///
     /// So it is the union of the seat discs and the origin disc. Mixing two
@@ -748,7 +748,7 @@ extension RadialMenuStyle {
         m.stepDegrees = step
 
         // How far the angular pick can actually see. `seatCoordinate` wraps the
-        // pointer into a 360° band centred on the arc's MIDDLE, so the reachable
+        // pointer into a 360° band centered on the arc's MIDDLE, so the reachable
         // seat range is (seats-1)/2 ± 180/step. Anything past that is drawable
         // but unselectable, which is worth a warning rather than a mystery.
         if layout == .radial && !closedRing && step > 0.0001 {
@@ -833,7 +833,7 @@ extension RadialMenuStyle {
         m.childMinStepDegrees = responsive ? childMinStep * 180 / .pi : 0
 
         // ── how much room this actually wants ─────────────────────────────────
-        // Half-extents, measured from the centre out — the menu is centred on the
+        // Half-extents, measured from the center out — the menu is centered on the
         // pinch, so the box it needs is symmetric even when the content is not.
         let childRun = childGapPt + CGFloat(max(maxChildren - 1, 0)) * childPitch
         var needW: CGFloat
@@ -1044,7 +1044,7 @@ struct RadialMenuHighlight: Equatable {
 struct RadialMenu: View {
     let items: [RadialMenuItem]
     var style = RadialMenuStyle()
-    /// Pointer offset from the menu centre, in points. nil = pinch not held.
+    /// Pointer offset from the menu center, in points. nil = pinch not held.
     let pointer: CGPoint?
     var isPresented: Bool
     /// Published upward so the host can confirm on release.
@@ -1096,7 +1096,7 @@ struct RadialMenu: View {
         let seat = m.seatAt(t)
 
         guard pv.opensSubmenu else {
-            // A seat at dead centre (a one-item column) would be rejected by the
+            // A seat at dead center (a one-item column) would be rejected by the
             // dead-zone epsilon and light nothing up, so nudge it off zero.
             if abs(seat.x) < 0.75 && abs(seat.y) < 0.75 {
                 return CGPoint(x: 0, y: -max(m.deadZone + 1, 1))
@@ -1148,7 +1148,7 @@ struct RadialMenu: View {
                                                  item: child, m)
                             // NO base .offset here on purpose. `.offset` doesn't move a
                             // view's LAYOUT frame, so a scale applied outside it pivots
-                            // around the menu's centre — which is exactly why children
+                            // around the menu's center — which is exactly why children
                             // looked like they grew out of the middle. The transition
                             // owns both scale and position, in that order, so the pivot
                             // is the icon itself.
@@ -1243,10 +1243,10 @@ struct RadialMenu: View {
             return Double(p.x / m.pitch) + Double(m.seats - 1) / 2
         case .radial:
             // The angular pick has to wrap somewhere, and where it wraps is where
-            // the list stops being reachable. Centre the ±180° band on the arc's
+            // the list stops being reachable. Center the ±180° band on the arc's
             // MIDDLE rather than on seat 0: seat 0 used to sit at one edge of the
             // band, so half of it was spent behind the start of the menu and a
-            // longer list ran off the far end unselectably. Centred, the same
+            // longer list ran off the far end unselectably. Centered, the same
             // 360° covers roughly twice as many seats and the two ends match.
             let mid = m.stepDegrees * Double(m.seats - 1) / 2
             let first = style.arcStartDegrees - 90 + mid
@@ -1279,7 +1279,7 @@ struct RadialMenu: View {
     // Placement now lives on RadialMenuMetrics — these are thin forwarders so the
     // call sites below read the same as they always did. There is exactly ONE
     // implementation of where a seat goes, and the preview pose and the
-    // content-centring share it rather than reimplementing it.
+    // content-centering share it rather than reimplementing it.
     private func angle(_ slot: Int, _ m: RadialMenuMetrics) -> CGFloat { m.angle(slot) }
     private func position(_ slot: Int, _ m: RadialMenuMetrics) -> CGPoint { m.seat(slot) }
 
@@ -1388,7 +1388,7 @@ struct RadialMenu: View {
     /// The nudge goes into the position the TRANSITION resolves to rather than
     /// onto an `.offset` outside it, for exactly the reason the base position
     /// does: an offset applied outside the transition's scale pivots the
-    /// animation on the menu's centre, and the child appears to grow out of the
+    /// animation on the menu's center, and the child appears to grow out of the
     /// middle instead of out of its parent.
     private func childCenter(parent slot: Int, child: Int, of count: Int,
                              item: RadialMenuItem, _ m: RadialMenuMetrics) -> CGPoint {
@@ -1578,7 +1578,7 @@ struct RadialMenu: View {
     /// They used to live in `guideLayer`, which sits under the icons so the
     /// dashed ring can pass behind them. That is right for the ring and wrong
     /// for the text: "ring 105 pt" was offset by `0.42 × icon` from the ring,
-    /// which is exactly an icon's radius — so it landed dead centre on the top
+    /// which is exactly an icon's radius — so it landed dead center on the top
     /// seat, under the icon, unreadable. Both numbers now clear the rim, and
     /// they draw ON TOP, because a measurement you cannot read is not a
     /// measurement.
@@ -1628,7 +1628,7 @@ struct RadialMenu: View {
     }
 
     /// The root, drawn. Hollow on purpose — it marks a point rather than
-    /// occupying it, so the label that lives at the centre in radial layouts
+    /// occupying it, so the label that lives at the center in radial layouts
     /// still reads through it.
     @ViewBuilder
     private func originLayer(_ m: RadialMenuMetrics) -> some View {
@@ -1734,7 +1734,7 @@ struct RadialMenu: View {
 
     // MARK: pieces
 
-    /// Radial: the centre. Linear: BESIDE the highlighted icon — level with its
+    /// Radial: the center. Linear: BESIDE the highlighted icon — level with its
     /// row in a column, under its column in a row — but always on the OUTSIDE of
     /// the menu, so it clears both the icons and any open sub-menu.
     ///
@@ -1752,7 +1752,7 @@ struct RadialMenu: View {
             .fixedSize()
             .opacity(highlight.action == nil ? 0 : 1)
             // Right-justified in a column so every name ends on the same line;
-            // centred under the icon in a row.
+            // centered under the icon in a row.
             .frame(width: m.labelRunway,
                    alignment: style.layout == .vertical ? .trailing : .center)
             .offset(x: anchor.x, y: anchor.y)
@@ -1905,9 +1905,9 @@ private struct Triangle: Shape {
     }
 }
 
-/// Scale FIRST (so the pivot is the icon's own centre), then position. Doing it
+/// Scale FIRST (so the pivot is the icon's own center), then position. Doing it
 /// the other way — the built-in `.scale` transition composed onto an already
-/// `.offset` view — pivots around the menu's centre, because `.offset` never
+/// `.offset` view — pivots around the menu's center, because `.offset` never
 /// moves the layout frame.
 private struct Emerge: ViewModifier {
     var scale: CGFloat
@@ -1921,7 +1921,7 @@ private struct Emerge: ViewModifier {
     }
 }
 
-/// A child EMERGES from the SELECTED icon's centre: it starts on that icon at
+/// A child EMERGES from the SELECTED icon's center: it starts on that icon at
 /// 70% — no need to start tiny — and eases out to its seat at full size.
 /// Absolute positions, because a child carries no base offset of its own.
 private extension AnyTransition {

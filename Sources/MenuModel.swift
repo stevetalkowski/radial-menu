@@ -83,12 +83,12 @@ final class MenuModel {
     /// true = the ICONS, via `contentCenter`. Uses the stage better: an arc is
     /// pulled back into the middle instead of hanging off a corner. The cost is
     /// that the box being pinned changes SHAPE as you drag `arc sweep` — the
-    /// ring radius moves with the step angle — so its centre holds while the
+    /// ring radius moves with the step angle — so its center holds while the
     /// icons themselves visibly travel. Which reads as the layout wobbling.
     ///
     /// There is no rule that pins both; they are different points and the
     /// distance between them is what `arc sweep` changes. Hence a switch.
-    var centreOnIcons = false
+    var centerOnIcons = false
 
 
     // MARK: live — written by whichever scene currently has the hand
