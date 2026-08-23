@@ -70,7 +70,7 @@ and any Apple developer account — a free one works, the build just expires aft
 seven days.
 
 ```bash
-git clone https://github.com/YOURNAME/radial-menu.git
+git clone https://github.com/stevetalkowski/radial-menu.git
 cd radial-menu
 open RadialMenu.xcodeproj
 ```
