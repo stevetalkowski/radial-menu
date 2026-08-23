@@ -1,0 +1,79 @@
+{
+  "version": 1,
+  "items": [
+    {
+      "id": "select",
+      "icon": "cursorarrow",
+      "label": "Select"
+    },
+    {
+      "id": "move",
+      "icon": "move.3d",
+      "label": "Move"
+    },
+    {
+      "id": "rotate",
+      "icon": "rotate.3d",
+      "label": "Rotate"
+    },
+    {
+      "id": "scale",
+      "icon": "arrow.up.left.and.arrow.down.right",
+      "label": "Scale"
+    },
+    {
+      "id": "shade",
+      "icon": "paintpalette",
+      "label": "Shading",
+      "children": [
+        {
+          "id": "shade.flat",
+          "icon": "circle",
+          "label": "Flat"
+        },
+        {
+          "id": "shade.smooth",
+          "icon": "circle.fill",
+          "label": "Smooth"
+        },
+        {
+          "id": "shade.wire",
+          "icon": "grid",
+          "label": "Wireframe"
+        }
+      ]
+    },
+    {
+      "id": "subdiv",
+      "icon": "square.grid.3x3",
+      "label": "Subdivide",
+      "children": [
+        {
+          "id": "subdiv.0",
+          "icon": "0.circle",
+          "label": "Level 0"
+        },
+        {
+          "id": "subdiv.1",
+          "icon": "1.circle",
+          "label": "Level 1"
+        },
+        {
+          "id": "subdiv.2",
+          "icon": "2.circle",
+          "label": "Level 2"
+        }
+      ]
+    },
+    {
+      "id": "mirror",
+      "icon": "flip.horizontal",
+      "label": "Mirror"
+    },
+    {
+      "id": "hide",
+      "icon": "eye.slash",
+      "label": "Hide"
+    }
+  ]
+}

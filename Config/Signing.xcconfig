@@ -1,0 +1,22 @@
+// Signing.xcconfig — tracked in git, deliberately blank.
+//
+// Your Apple Team ID and bundle identifier are yours, not the repository's, so
+// they are not committed here. Create Config/Local.xcconfig (gitignored) with:
+//
+//     DEVELOPMENT_TEAM = ABCDE12345
+//     PRODUCT_BUNDLE_IDENTIFIER = com.yourcompany.RadialMenu
+//
+// Find your Team ID with:  xcrun devicectl list devices
+// or in Xcode: Settings → Accounts → your Apple ID → Manage Certificates,
+// or at developer.apple.com → Membership.
+//
+// Selecting a team in Xcode's Signing & Capabilities editor also works, but it
+// writes the value back into project.pbxproj, which then shows up in your next
+// commit. The Local.xcconfig route keeps it out of git for good.
+
+DEVELOPMENT_TEAM =
+PRODUCT_BUNDLE_IDENTIFIER = com.example.RadialMenu
+
+// Optional, and absent by default. The `?` means "no error if missing", so the
+// project still opens cleanly for anyone who has not made one yet.
+#include? "Local.xcconfig"

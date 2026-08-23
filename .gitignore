@@ -1,0 +1,20 @@
+# Xcode build products — this directory reaches 500 MB+
+build/
+DerivedData/
+*.xcuserdatad/
+xcuserdata/
+*.xcworkspace/xcuserdata/
+
+# Your own signing / bundle id, if you use an xcconfig
+Local.xcconfig
+
+# macOS
+.DS_Store
+
+# Menu content and tuning pulled off a device — yours, not the repo's
+*-presets.json
+*-items.json
+
+# Your signing identity — never commit this
+Config/Local.xcconfig
+Config/local.env
