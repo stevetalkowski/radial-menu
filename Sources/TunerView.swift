@@ -777,6 +777,14 @@ struct TunerView: View {
     }
 
     private func addItem() {
+        // A menu tops out at twelve, so the LIST does too. It could have kept
+        // going and parked the extras in the tray as alternates — but a bench of
+        // spares you cannot put on the ring is a way to accumulate junk, and you
+        // found that out by adding a thirteenth.
+        guard allItems.count < MenuModel.maxIcons else {
+            note("twelve is the ceiling — edit one you have, or delete one first")
+            return
+        }
         let n = allItems.count + 1
         var id = "item.\(n)"
         var bump = n
@@ -849,7 +857,25 @@ struct TunerView: View {
             } else {
                 caption("tap a category — in the tray or on the ring — to rename it, change its symbol, or give it a sub-menu.")
             }
+            HStack(spacing: 8) {
+                Button("reset categories") { resetItems() }
+                    .buttonStyle(.bordered)
+                    .tint(.red)
+                Spacer()
+            }
+            caption("back to the twelve shipped examples. The only way out of a list you have made a mess of, short of deleting one at a time.")
         }
+    }
+
+    private func resetItems() {
+        allItems = MenuModel.defaultItems
+        picked = nil
+        var c = config
+        c.icons = max(2, min(c.icons, allItems.count, MenuModel.maxIcons))
+        config = c
+        symbolReport = validateSymbols()
+        saveItemsSoon()
+        note("restored the \(MenuModel.defaultItems.count) example categories")
     }
 
     private var pickedIndex: Int? {
@@ -1425,10 +1451,10 @@ struct TunerView: View {
                 ? "the pane has stopped drawing a menu — one solve at a time, so two of them cannot fight over the metrics readout. Look around you."
                 : "opens an immersive space and draws the SAME menu there, with no window behind it. The component does not change at all: it takes a pointer offset and has no opinion about what is holding it.")
         if model.spatialOn {
-            knob("distance", $model.spatialDistance, 300...2200, " pt")
-            knob("height", $model.spatialHeight, -1000...2000, " pt")
-            knob("scale", $model.spatialScale, 0.3...3, "×", decimals: 2)
-            caption("points, not metres — the same unit the rest of the layout speaks. Roughly 1360 pt to a metre.")
+            knob("distance", $model.spatialDistance, 0.3...2.5, " m", decimals: 2)
+            knob("height", $model.spatialHeight, -0.5...2.2, " m", decimals: 2)
+            knob("scale", $model.spatialScale, 0.2...3, "×", decimals: 2)
+            caption("metres, from where you were standing when the space opened. Height goes NEGATIVE on purpose — which way is up in there is a thing to confirm by dragging, not by assuming.")
         }
     }
     #endif

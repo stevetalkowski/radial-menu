@@ -990,6 +990,55 @@ pulled back into the middle instead of hanging off a corner. It is the right
 choice for looking at a finished arc and the wrong one for dragging the knob that
 shapes it.
 
+## Content that only exists during a change (round 20, 2026-08-23)
+
+The immersive space opened and drew almost nothing. In preview: empty. Switching
+preview → live: the menu appeared for an instant, centred, and faded.
+
+That symptom is the diagnosis. Position was identical in both modes, so it was
+never placement. What differed was that switching modes forced a re-render — and
+the menu was visible for exactly as long as that took. **Content that only exists
+during a state change is content that was never given anywhere to live.**
+
+An `ImmersiveSpace` expects RealityKit content. A bare SwiftUI hierarchy compiles
+and opens and then behaves like this. SwiftUI goes in as an ATTACHMENT: a real
+entity, with a real transform, that persists between renders. The sliders now
+move an entity that is already in the scene rather than re-describing a view that
+has nowhere to be.
+
+Two things fell out of the rewrite. Placement is in METRES, unlike every other
+length in the project, because it becomes a RealityKit transform directly and
+converting at the slider would only move the confusion somewhere harder to see.
+And `RadialMenu.swift` still has not changed — the component takes a pointer
+offset and has no opinion about whether it is in a window, a volume, or an entity
+in someone's living room.
+
+### Diagnostics, twice burned
+
+Two wrong turns this round, both worth remembering.
+
+A `strings` probe reported the visionOS code missing from the binary — but the
+CONTROL probes came back zero too, which meant the method was broken, not the
+code. It was reading the launcher stub; the code was in `RadialMenu.debug.dylib`
+all along. **Always probe for something you know is there.**
+
+And the error message asserted "scene not registered?", which was a hypothesis
+wearing a diagnosis's clothes, and it sent us into the Swift. The scene was fine.
+`Info.plist` was four hours older than the binary — generated from
+`INFOPLIST_KEY_*` settings that an incremental build had no idea had changed.
+`./Tools/build.sh clean` exists now, and the message no longer guesses.
+
+## Twelve, and what fills it
+
+The `+` used to keep going past twelve on the theory that extras could sit in the
+tray as alternates. They can, and it is also a way to accumulate junk — which
+took about one minute of real use to demonstrate. The list is capped at the ring.
+
+The example set is now twelve, with four placeholders that name real modes in
+Quads — Gizmo, Edit, Sculpt, SubD wire — so it reads as a plausible menu instead
+of a bag of verbs. `reset categories` restores them, which is also the only way
+back from a list you have made a mess of.
+
 ## Where this is heading
 
 The menu is meant to be summoned **on whatever you're gazing at** — an object, empty space, or

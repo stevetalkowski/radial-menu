@@ -45,6 +45,15 @@ final class MenuModel {
         .init(id: "duplicate", systemImage: "plus.square.on.square", label: "Duplicate"),
         .init(id: "lock", systemImage: "lock", label: "Lock"),
         .init(id: "delete", systemImage: "trash", label: "Delete"),
+        // Four placeholders that correspond to real modes in Quads, so the
+        // example is a plausible menu rather than a bag of verbs. Twelve total —
+        // a full clock face, which is also the ceiling.
+        .init(id: "gizmo", systemImage: "arrow.up.and.down.and.arrow.left.and.right",
+              label: "Gizmo"),
+        .init(id: "edit", systemImage: "point.3.connected.trianglepath.dotted",
+              label: "Edit"),
+        .init(id: "sculpt", systemImage: "hand.draw", label: "Sculpt"),
+        .init(id: "wireframe", systemImage: "squareshape.split.3x3", label: "SubD wire"),
     ]
 
     /// Twelve. A clock face, and about as many directions as a hand can aim at
@@ -102,14 +111,19 @@ final class MenuModel {
 
     // MARK: where it hangs in the room (visionOS)
     //
-    // Points, not metres, because that is what the rest of the layout speaks.
-    // Tunable rather than guessed: nobody can pick "the right distance" for a
-    // headset from a text editor, and this app's entire premise is that you dial
-    // that kind of number with the thing in front of you.
+    // METRES, unlike every other length in this project, because they become a
+    // RealityKit transform directly and converting at the slider would only move
+    // the confusion somewhere harder to see.
+    //
+    // Tunable rather than guessed: nobody picks the right arm's length for a
+    // headset from a text editor, which is this app's premise applied to itself.
 
     var spatialOn = false
-    var spatialDistance: Double = 900
-    var spatialHeight: Double = 1250
+    /// In front of where you were standing when the space opened.
+    var spatialDistance: Double = 0.7
+    /// Up from the floor. Negative is allowed, because which way is up in an
+    /// immersive space is a thing to confirm by dragging, not by assuming.
+    var spatialHeight: Double = 1.2
     var spatialScale: Double = 1
 
     // MARK: derived — the two things any scene needs to draw
