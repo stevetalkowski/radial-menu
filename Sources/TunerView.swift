@@ -1253,6 +1253,7 @@ struct TunerView: View {
                         ? "on a FULL ring this repeats every step — \(deg(metrics.stepDegrees)) at \(metrics.seats) icons. 0° and \(deg(metrics.stepDegrees)) draw an identical ring; what moved is which ITEM sits at 12 o'clock."
                         : "rotates the whole arc. 0° puts the first item at 12 o'clock.")
                 knob("arc sweep", bindArcSweep(), 30...360, "°")
+                caption("an open arc runs out at \(deg(maxOpenSweep)) with \(metrics.seats) icons — that is where its step equals its wrap and the spacing is already uniform all the way round. Past it snaps to a full ring, because past it there is no new layout to reach.")
             } else {
                 ratio("child pitch", bind(\.childSpacingScale), 0.5...1.6,
                       resolved: pt(metrics.childSpacing))
@@ -1299,6 +1300,7 @@ struct TunerView: View {
                         ? "on a FULL ring this repeats every step — \(deg(metrics.stepDegrees)) at \(metrics.seats) icons. 0° and \(deg(metrics.stepDegrees)) draw an identical ring; what moved is which ITEM sits at 12 o'clock."
                         : "rotates the whole arc. 0° puts the first item at 12 o'clock.")
                 knob("arc sweep", bindArcSweep(), 30...360, "°")
+                caption("an open arc runs out at \(deg(maxOpenSweep)) with \(metrics.seats) icons — that is where its step equals its wrap and the spacing is already uniform all the way round. Past it snaps to a full ring, because past it there is no new layout to reach.")
             } else {
                 knob("row pitch", bind(\.linearSpacing), 40...220, "pt")
                 knob("child pitch", bind(\.childSpacingScale), 0.5...1.6, "×")
@@ -1869,26 +1871,37 @@ struct TunerView: View {
         symbolReport = validateSymbols()
         saveItemsSoon()
     }
-    /// Snaps the top of the range to a true full turn — and the threshold has to
-    /// know the icon COUNT, which the old fixed 355 did not.
+    /// The widest an OPEN arc can usefully be, given the icon count.
     ///
-    /// An arc short of a full turn leaves a WRAP gap of `360 − sweep` between its
-    /// last seat and its first. As the sweep closes, that gap shrinks while the
-    /// ring has to grow to keep it clear, and near the top it grows absurdly —
-    /// 853 pt at 354° with twelve icons, which `fit` then shrinks the whole menu
-    /// to survive.
+    /// An open arc of `S` degrees with `n` seats has a step of `S/(n−1)` between
+    /// neighbours and a WRAP of `360 − S` between its last seat and its first.
+    /// Those are equal when
     ///
-    /// So: once the wrap has fallen below HALF a step, you meant a full ring.
-    /// That lands at 344° for twelve icons and 309° for four, instead of one
-    /// fixed number that was far too permissive for a crowded ring and needlessly
-    /// eager for a sparse one.
+    ///     S = 360·(n−1)/n
+    ///
+    /// and at that sweep the spacing is uniform the whole way round — which is
+    /// a full ring, drawn as an open arc. 330° at twelve icons, 270° at four.
+    ///
+    /// Past it you are asking for the wrap to be TIGHTER than the neighbours:
+    /// more crowded than a full ring, in exchange for nothing. There is no
+    /// layout up there, which is why it snaps.
+    private var maxOpenSweep: Double {
+        let n = Double(max(metrics.seats, 2))
+        return 360 * (n - 1) / n
+    }
+
+    /// Snaps the top of the range to a true full turn, at the exact boundary
+    /// above.
+    ///
+    /// Two earlier versions of this line were guesses: a fixed `>= 355`, and
+    /// then "once the wrap falls below half a step" (344° at twelve icons).
+    /// Both let you into the degenerate band, because both were reasoning about
+    /// when it gets BAD rather than when it stops meaning anything new.
     private func bindArcSweep() -> Binding<Double> {
         Binding(get: { config.style.arcSweepDegrees },
                 set: { v in
-                    let n = Double(max(metrics.seats, 2))
-                    let step = v / max(n - 1, 1)
                     var c = config
-                    c.style.arcSweepDegrees = (360 - v) < step / 2 ? 360 : v
+                    c.style.arcSweepDegrees = v >= maxOpenSweep ? 360 : v
                     config = c
                 })
     }

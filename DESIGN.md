@@ -1061,15 +1061,34 @@ measuring it at all — the diagnostic was right there being ignored.
 `packStep = min(step, wrapDeg)` now. Clearance is flat at 13.6 pt across the
 whole sweep range instead of collapsing above 330°.
 
-### And the snap had to learn to count
+### And the snap had an exact answer all along
 
-Solving for the wrap means the ring grows as the arc closes, and near the top it
-grows absurdly: 853 pt at 354° with twelve icons, which `fit` then shrinks the
-entire menu to survive. The old snap was a fixed `>= 355`, which is far too
-permissive for a crowded ring and needlessly eager for a sparse one.
+Solving for the wrap means the ring grows as the arc closes, so the slider needs
+a top. Two guesses went in first: a fixed `>= 355`, then "once the wrap falls
+below half a step" (344° at twelve icons). Steve rejected the second with the
+right rule: *"330 degrees should be it for 12 icons. You need to do the proper
+division depending on how many icons are being used."*
 
-The rule is now count-aware: once the wrap has fallen below HALF a step, you meant
-a full ring. 344° at twelve icons, 309° at four.
+An open arc of `S` degrees with `n` seats has a step of `S/(n−1)` and a wrap of
+`360 − S`. They are equal at
+
+    S = 360·(n−1)/n
+
+and at that sweep the spacing is uniform the whole way round — a full ring, drawn
+as an open arc. 330° at twelve icons, 315° at eight, 270° at four. Past it you are
+asking for the wrap to be tighter than the neighbours: more crowded than a full
+ring, in exchange for nothing.
+
+Both guesses were reasoning about when it gets BAD. The boundary is where it
+stops meaning anything NEW, and that has a closed form.
+
+### So was the packing fix wasted?
+
+No, but it is now belt to the snap's braces, and the two live at different layers
+on purpose. The tuner's slider will not let you ASK for a sweep past the
+boundary. The component makes no such assumption — a host can set
+`arcSweepDegrees` to anything at all, and `packStep = min(step, wrapDeg)` means
+the icons still cannot overlap when it does.
 
 ## What counts as a guide (round 21b)
 
