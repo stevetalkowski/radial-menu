@@ -1496,6 +1496,15 @@ struct TunerView: View {
             ratio("pointer size", bind(\.pointerScale), 0.05...0.5,
                   resolved: pt(metrics.iconSize * config.style.pointerScale))
             knob("pointer fade", bindStyleDouble(\.pointerOpacity), 0.1...1, "")
+            ratio("pointer reach", bind(\.pointerReachRatio), 0...1,
+                  resolved: pt(layout == .radial ? metrics.pointerReach.width
+                                                 : metrics.pointerReach.height))
+            caption(config.style.pointerReachRatio > 0.99
+                    ? "the dot may run all the way out to where the sub-menus land. Overshoot keeps MOVING, which keeps telling you something."
+                    : config.style.pointerReachRatio < 0.01
+                    ? "pinned to the icons. Past them the dot stops dead and further hand travel is silent — cleaner, and it gives up the one cue that says you have gone too far."
+                    : "between the icons and the menu's full extent. Display only: the PICK always reads your raw hand.")
+            caption("bounds overshoot into EMPTY space only — land on a category with children and the dot is free to follow you out to them, whatever this says.")
         }
         Toggle("show centre", isOn: bindBool(\.showOrigin))
         if config.style.showOrigin {

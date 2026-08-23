@@ -1129,6 +1129,65 @@ gets exported; `displayStyle` is what a scene draws. Hiding the guides is a way
 of looking at the menu, not a property of it, and the exporter must never bake a
 temporary view preference into somebody else's file.
 
+## Pointer reach (round 22, 2026-08-23)
+
+*"i love how the pointer can overshoot the first category radius, but there may
+be those that would like to dial that back."*
+
+`pointerReachRatio`, 0 to 1, lerping the visible pointer's clamp from where the
+ICONS are out to the menu's full extent. At twelve icons that spans 172 pt to
+352 pt. Default 1 — nobody's behaviour changes.
+
+Three things about it that are worth being exact about, because each one was a
+decision rather than an obvious choice.
+
+**It is display only.** The clamp lives in `clampedPointer`, which feeds
+`pointerLayer` and nothing else; the PICK reads the raw offset. So pulling this
+in can never cost you a sub-menu you could otherwise reach — the dot pins to the
+ring while your hand keeps going and keeps working. Any other arrangement would
+have made this knob dangerous instead of cosmetic.
+
+**The floor is the icons, not the origin.** Zero would pin the dot to the menu's
+centre, which is a different thing and a useless one. 0 here means "stops on the
+icon centres", which is what was actually asked for.
+
+**In the linear layouts the ACROSS floor is half an icon, not the seat line.**
+Across is the direction sub-menus open, and a dot welded to the column could
+never show you leaving it.
+
+What the knob actually trades: at 1 the dot keeps moving past the ring, and that
+movement is a cue — it says you have gone further than you needed to. At 0 it
+stops dead and every further millimetre of hand is silent. Cleaner, and one cue
+poorer. Both are defensible, which is exactly what makes it a knob rather than a
+decision.
+
+### It bounds empty space, not travel
+
+*"as soon as you hit a category WITH sub menu choices, the pointer is able to
+reach them."*
+
+Shipped as first written, this knob was cosmetic right up until you used it. At
+0 the dot pins to the ring at 172 pt — while the trigger is at 250 and the
+children land at 314. Pick a child and your hand is 140 pt past a dot that
+stopped moving. Blind in the one place blindness costs something, at exactly the
+setting somebody chose for tidiness.
+
+`pointerBound` makes it the smallest thing that still covers the current state:
+
+| state | bound |
+|---|---|
+| children out | everything — they are what you are reaching for |
+| a parent, still closed | at least the trigger, so you can GET to them |
+| anything else | the dial, because there is nothing out there |
+
+Taking the MAX rather than switching outright is what keeps it jump-free: by the
+time a sub-menu opens the bound is already at the trigger, and the trigger is
+where the crossing happens. The dot never leaps to catch up.
+
+The general shape, which is the part worth keeping: a limit that says "further
+buys you nothing" has to know what is in front of you. A fixed one is either too
+tight somewhere or pointless everywhere.
+
 ## Where this is heading
 
 The menu is meant to be summoned **on whatever you're gazing at** — an object, empty space, or

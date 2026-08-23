@@ -106,6 +106,7 @@ enum RadialMenuExport {
         // before calling. Exported because a colleague on visionOS needs the
         // number and has no way to derive it.
         put("pointerGain", n(s.pointerGain))
+        put("pointerReachRatio", n(s.pointerReachRatio))
         put("showOrigin", s.showOrigin ? "true" : "false")
         put("originScale", n(s.originScale))
         put("originLineWidth", n(s.originLineWidth))

@@ -374,6 +374,25 @@ struct RadialMenuStyle: Codable, Equatable {
     /// band". Separate from the spoke because they answer different questions:
     /// the spoke says where you are, the leader says what that means.
     var showPointerLeader: Bool = true
+    /// How far the visible pointer may travel, from the icons out to the menu's
+    /// full extent. 0 = it stops dead on the icon centres; 1 = it may run all
+    /// the way out to where the sub-menus land.
+    ///
+    /// Purely a DISPLAY bound — the pick reads the raw offset, so pulling this in
+    /// never costs you a sub-menu you could otherwise reach. What it changes is
+    /// what overshooting LOOKS like: at 1 the dot keeps going and the clamp is a
+    /// distant backstop; at 0 the dot pins to the icons the moment you pass them
+    /// and every further millimetre of hand is silent.
+    ///
+    /// It bounds overshoot into EMPTY SPACE only. Land on a category with
+    /// children and the bound opens up to cover the trigger and then the children
+    /// themselves — see `pointerBound`. Otherwise this knob would make sub-menus
+    /// blind at exactly the setting somebody chose for tidiness.
+    ///
+    /// Both are defensible and it is a matter of taste, which is why it is a
+    /// knob. 1 is the shipped default because a dot that keeps moving keeps
+    /// telling you something.
+    var pointerReachRatio: CGFloat = 1
     var pointerOpacity: Double = 0.4877
 
     /// A hollow ring drawn at the menu's ORIGIN — the root of the hierarchy, the
@@ -425,7 +444,7 @@ struct RadialMenuStyle: Codable, Equatable {
         case showSubmenuGuide, showSubmenuArrow, arrowScale, arrowGapRatio
         case submenuOnHighlight
         case showPointer, pointerScale, showPointerTrail, pointerOpacity
-        case nudgeSpread, showPointerLeader, pointerGain
+        case nudgeSpread, showPointerLeader, pointerGain, pointerReachRatio
         case showOrigin, originScale, originLineWidth
     }
 
@@ -456,6 +475,7 @@ struct RadialMenuStyle: Codable, Equatable {
         childNudgeRatio   = num(.childNudgeRatio, childNudgeRatio)
         childrenFlipped   = flag(.childrenFlipped, childrenFlipped)
         pointerGain       = num(.pointerGain, pointerGain)
+        pointerReachRatio = num(.pointerReachRatio, pointerReachRatio)
         showOrigin        = flag(.showOrigin, showOrigin)
         originScale       = num(.originScale, originScale)
         originLineWidth   = num(.originLineWidth, originLineWidth)
@@ -592,11 +612,15 @@ struct RadialMenuMetrics: Equatable {
     /// panel says so.
     var submenuThresholdFloored: Bool = false
 
-    /// Half-extents of everything the menu draws — what the visible pointer is
-    /// clamped to, so an overshooting hand slides along the boundary instead of
-    /// flying off into the room. The clamp is itself feedback: it says "further
-    /// buys you nothing".
+    /// Half-extents of everything the menu draws. The ceiling for the visible
+    /// pointer's clamp — see `pointerReach` for where it actually stops, which
+    /// is a fraction of the way here. The clamp is itself feedback: it says
+    /// "further buys you nothing".
     var reach: CGSize = CGSize(width: 230, height: 230)
+
+    /// Where the visible pointer is actually clamped: `pointerReachRatio` of the
+    /// way from the ICONS out to `reach`. At 1 the two are the same thing.
+    var pointerReach: CGSize = CGSize(width: 230, height: 230)
 
     /// BLIND TRAVEL — how far the pointer moves with nothing changing on screen.
     ///
@@ -872,6 +896,29 @@ extension RadialMenuStyle {
         m.canvas = max(needW, needH)
         m.fit = fit
         m.reach = CGSize(width: needW / 2, height: needH / 2)
+
+        // The pointer's own bound, somewhere between the icons and everything.
+        //
+        // The floor is where the ICONS are, not zero: pinning the dot to the
+        // menu's origin would be a different thing entirely, and a useless one.
+        // In the linear layouts the ACROSS floor is half an icon rather than the
+        // seat line itself, because across is the direction sub-menus open and a
+        // dot welded to the column could never show you leaving it.
+        let seatExtent: CGSize
+        switch layout {
+        case .radial:
+            seatExtent = CGSize(width: ring, height: ring)
+        case .vertical:
+            seatExtent = CGSize(width: iconPt / 2,
+                                height: CGFloat(seats - 1) * pitch / 2)
+        case .horizontal:
+            seatExtent = CGSize(width: CGFloat(seats - 1) * pitch / 2,
+                                height: iconPt / 2)
+        }
+        let t = min(max(pointerReachRatio, 0), 1)
+        m.pointerReach = CGSize(
+            width: seatExtent.width + (m.reach.width - seatExtent.width) * t,
+            height: seatExtent.height + (m.reach.height - seatExtent.height) * t)
         m.blindAcross = m.gutter
         m.blindAlong = max(m.submenuThreshold - m.deadZone, 0)
 
@@ -1584,16 +1631,49 @@ struct RadialMenu: View {
 
     /// Bounded to the widget, as the reviewer put it: an overshooting pointer
     /// slides along the menu's own boundary rather than leaving it.
+    /// Where "further buys you nothing" actually starts — which depends on what
+    /// is in front of you.
+    ///
+    /// `pointerReachRatio` bounds overshoot into EMPTY SPACE. It must never bound
+    /// travel toward something you are selecting, or dialling it down would pin
+    /// the dot to the ring while your hand is out among the children, blind in
+    /// the one place it matters most.
+    ///
+    /// So the bound is the smallest thing that still covers the current state:
+    ///
+    ///   • children out    → everything, they are what you are reaching for
+    ///   • a parent, closed → at least the trigger, so you can GET to them
+    ///   • anything else    → the dial, because there is nothing out there
+    ///
+    /// Taking the max also means no jump when a sub-menu opens: the bound was
+    /// already at the trigger, and the trigger is where the crossing happens.
+    private func pointerBound(_ m: RadialMenuMetrics) -> CGSize {
+        if submenuOpen(m) { return m.reach }
+        guard highlightedHasChildren else { return m.pointerReach }
+        let t = m.submenuThreshold
+        switch style.layout {
+        case .radial:
+            return CGSize(width: max(m.pointerReach.width, t),
+                          height: max(m.pointerReach.height, t))
+        case .vertical:
+            // Across is where children open; along the column nothing changes.
+            return CGSize(width: max(m.pointerReach.width, t), height: m.pointerReach.height)
+        case .horizontal:
+            return CGSize(width: m.pointerReach.width, height: max(m.pointerReach.height, t))
+        }
+    }
+
     private func clampedPointer(_ p: CGPoint, _ m: RadialMenuMetrics) -> CGPoint {
+        let bound = pointerBound(m)
         switch style.layout {
         case .radial:
             let r = hypot(p.x, p.y)
-            let maxR = max(m.reach.width, 1)
+            let maxR = max(bound.width, 1)
             guard r > maxR else { return p }
             return CGPoint(x: p.x / r * maxR, y: p.y / r * maxR)
         case .vertical, .horizontal:
-            return CGPoint(x: min(max(p.x, -m.reach.width), m.reach.width),
-                           y: min(max(p.y, -m.reach.height), m.reach.height))
+            return CGPoint(x: min(max(p.x, -bound.width), bound.width),
+                           y: min(max(p.y, -bound.height), bound.height))
         }
     }
 
