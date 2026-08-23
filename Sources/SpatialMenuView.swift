@@ -49,7 +49,7 @@ struct SpatialMenuView: View {
                 // live gesture by its origin, because during a gesture the
                 // origin IS the pinch and moving it would break the one contract
                 // the component has.
-                let origin = model.menuShown
+                let origin = (model.menuShown || !model.centreOnIcons)
                     ? anchor
                     : CGPoint(x: anchor.x - model.metrics.contentCenter.x,
                               y: anchor.y - model.metrics.contentCenter.y)

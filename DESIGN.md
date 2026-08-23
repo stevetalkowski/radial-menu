@@ -951,6 +951,45 @@ for twelve should produce twelve seats to fill, not refuse on the grounds that
 you have not filled them yet. Dragging back down never deletes, so the gesture is
 reversible — which is exactly what makes it safe to be that eager.
 
+## Two centres, and no rule that pins both (round 19, 2026-08-23)
+
+The jitter was a lag and is gone. What is left is a WOBBLE, and it is not a bug
+in `contentCenter` — it is `contentCenter` working exactly as specified against a
+premise that does not hold.
+
+`drawnBoundsCenter` pins the centre of a BOX: the union of the seat discs and the
+origin disc. Arc sweep changes the shape of that box violently, because the ring
+radius is solved from the step angle. At the shipped tuning, eight seats:
+
+| sweep | step | ring |
+|---|---|---|
+| 360° | 45° | 117 pt |
+| 180° | 25.7° | 201 pt |
+| 90° | 12.9° | 399 pt |
+
+A 3.4× change in radius. And at 90° the box's centre sits at **(187, −187)** from
+the origin, versus (0, 0) at a full ring. So dragging sweep slides the applied
+offset a quarter of a screen while the content triples in size. The box's centre
+is pinned perfectly; the icons travel anyway, because a box centre is not a thing
+the eye tracks.
+
+There is no rule that pins both the origin and the icons. They are two different
+points and `arc sweep` is precisely the knob that changes the distance between
+them. Round 11 pinned the icons and the origin swung; round 12 pinned the union
+and the whole thing drifts. Both complaints were correct.
+
+So it is a switch, `centre on`, and the default changed to **origin** for a
+reason beyond stability: in LIVE the origin is your pinch, so no offset is
+applied at all. Pinning the origin in preview is the only setting where preview
+and live are the same geometry. Preview claiming to be "the real thing held
+still" while quietly using a different centre was a smell before it was a
+complaint.
+
+Centring on icons stays, because it genuinely uses a window better — an arc gets
+pulled back into the middle instead of hanging off a corner. It is the right
+choice for looking at a finished arc and the wrong one for dragging the knob that
+shapes it.
+
 ## Where this is heading
 
 The menu is meant to be summoned **on whatever you're gazing at** — an object, empty space, or

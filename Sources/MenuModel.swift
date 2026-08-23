@@ -64,6 +64,23 @@ final class MenuModel {
     var previewOn = true
     var previewPose = RadialMenuPreview()
 
+    /// What the stage holds still while you turn a knob.
+    ///
+    /// false = the ORIGIN. Nothing moves, ever — you are adjusting where the
+    /// icons sit relative to a fixed point, which is also exactly what a live
+    /// gesture does, since there the origin IS your pinch. On an arc that means
+    /// the icons sit off to one side, because on an arc they DO.
+    ///
+    /// true = the ICONS, via `contentCenter`. Uses the stage better: an arc is
+    /// pulled back into the middle instead of hanging off a corner. The cost is
+    /// that the box being pinned changes SHAPE as you drag `arc sweep` — the
+    /// ring radius moves with the step angle — so its centre holds while the
+    /// icons themselves visibly travel. Which reads as the layout wobbling.
+    ///
+    /// There is no rule that pins both; they are different points and the
+    /// distance between them is what `arc sweep` changes. Hence a switch.
+    var centreOnIcons = false
+
     // MARK: live — written by whichever scene currently has the hand
 
     var menuShown = false

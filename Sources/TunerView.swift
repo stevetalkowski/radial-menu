@@ -380,7 +380,7 @@ struct TunerView: View {
                 let m = style.resolved(itemCount: visibleItems.count,
                                        maxChildren: visibleItems.map(\.children.count).max() ?? 0,
                                        available: room)
-                let origin = menuShown
+                let origin = (menuShown || !model.centreOnIcons)
                     ? anchor
                     : CGPoint(x: anchor.x - m.contentCenter.x,
                               y: anchor.y - m.contentCenter.y)
@@ -1116,8 +1116,19 @@ struct TunerView: View {
             if firstParentSlot == nil {
                 warn("no item on the ring has children — raise `icons`, or turn on ARRANGE and drag a parent onto a seat", .orange)
             }
-            Toggle("pin arrows", isOn: $model.previewPose.pinArrows)
-            Toggle("measure guides", isOn: $model.previewPose.showGuides)
+            Group {
+                Toggle("pin arrows", isOn: $model.previewPose.pinArrows)
+                Toggle("measure guides", isOn: $model.previewPose.showGuides)
+                Picker("centre on", selection: $model.centreOnIcons) {
+                    Text("origin").tag(false)
+                    Text("icons").tag(true)
+                }
+                .pickerStyle(.segmented)
+                .padding(.top, 2)
+                caption(model.centreOnIcons
+                        ? "ICONS — an arc is pulled back into the middle instead of hanging off a corner. But the box being held still changes SHAPE as `arc sweep` moves the ring radius, so its centre holds while the icons themselves travel."
+                        : "ORIGIN — nothing moves. Also what a LIVE gesture does, since there the origin is your pinch, so preview and live agree. On an arc the icons sit off to one side, because on an arc they do.")
+            }
             caption(previewBlurb)
             Divider().padding(.vertical, 4)
             pointerControls
