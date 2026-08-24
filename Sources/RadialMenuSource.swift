@@ -4,7 +4,7 @@
 //  A verbatim copy of RadialMenu.swift so the app can emit a self-contained
 //  export at runtime. Regenerate with Tools/embed-source.sh.
 //
-//  Source: Sources/RadialMenu.swift  (2006 lines, EMBED-VERSION 7)
+//  Source: Sources/RadialMenu.swift  (2256 lines, EMBED-VERSION 7)
 //
 
 enum RadialMenuSource {
@@ -455,6 +455,27 @@ struct RadialMenuStyle: Codable, Equatable {
     /// shipped icon size — a new knob should change nothing until you move it.
     var pointerLineWidth: CGFloat = 0.0132
 
+    /// How far the HIGHLIGHTED thing stands off the plane, in points.
+    ///
+    /// Not a per-level lift applied to everything — that was the first pass and
+    /// it was wrong. Lifting every category by a centimetre makes a ring that is
+    /// uniformly closer, which is a ring at a different distance rather than a
+    /// hierarchy: nothing is being said, because everything is saying it.
+    ///
+    /// Depth is FEEDBACK, and it stacks by LEVEL rather than by icon. The ring
+    /// stays flat; the category you are on comes out by a step and BRINGS ITS
+    /// OPEN SUB-MENU WITH IT, since those children exist because of it; the
+    /// child you are on goes out by two. So each level is one step, and only
+    /// where you actually are.
+    ///
+    /// visionOS renders an attachment at roughly 1360 pt/m, so 14 pt is about a
+    /// centimetre and 28 about two.
+    ///
+    /// 0 is flat, and flat is a legitimate answer: depth costs you the ability
+    /// to read the ring as one object at a glance, which is the thing a marking
+    /// menu trades on.
+    var depthStep: CGFloat = 14
+
     /// Triangle size, as a fraction of the icon it sits on.
     var arrowScale: CGFloat = 0.20
     /// How far the triangle stands off the icon's RIM, as a fraction of the icon
@@ -490,6 +511,7 @@ struct RadialMenuStyle: Codable, Equatable {
         case showPointer, pointerScale, showPointerTrail, pointerOpacity
         case nudgeSpread, showPointerLeader, pointerGain, pointerReachRatio
         case showOrigin, originScale, originLineWidth, pointerLineWidth
+        case depthStep
     }
 
     init(from decoder: Decoder) throws {
@@ -524,6 +546,7 @@ struct RadialMenuStyle: Codable, Equatable {
         originScale       = num(.originScale, originScale)
         originLineWidth   = num(.originLineWidth, originLineWidth)
         pointerLineWidth  = num(.pointerLineWidth, pointerLineWidth)
+        depthStep         = num(.depthStep, depthStep)
         childGapRatio     = num(.childGapRatio, childGapRatio)
         labelGapRatio     = num(.labelGapRatio, labelGapRatio)
         deadZoneRatio     = num(.deadZoneRatio, deadZoneRatio)
@@ -1179,13 +1202,7 @@ struct RadialMenu: View {
                     let isOn = highlight.parent == item
                     let p = iconCenter(i, m)
 
-                    iconButton(item, size: m.iconSize,
-                               highlighted: isOn && highlight.child == nil,
-                               // The arrow points the way this item's children
-                               // will come out, and retires once they're out.
-                               arrow: item.children.isEmpty ? nil : outward(i, m),
-                               arrowLit: arrowIsLit(item, highlighted: isOn, m))
-                        .offset(x: p.x, y: p.y)
+                    seat(item, at: i, on: isOn, p, m)
 
                     if showsChildren(of: item, highlighted: isOn, m) {
                         ForEach(Array(item.children.enumerated()), id: \.element.id) { ci, child in
@@ -1219,17 +1236,35 @@ struct RadialMenu: View {
                             // The pivot argument survives intact: `.scaleEffect`
                             // is applied inside `Emerge`, and this `.offset` is
                             // outside it, so the scale still pivots on the icon.
-                            iconButton(child, size: m.childIconSize,
-                                       highlighted: highlight.child == child)
-                                .transition(.emerging(from: p, to: cp))
-                                .offset(x: cp.x, y: cp.y)
+                            childSeat(child, from: p, to: cp, m)
                         }
                     }
                 }
             }
-            // Icons ease (in place) as the highlight moves; this is also the timing
-            // context the child transition rides.
-            .animation(.easeOut(duration: style.easeDuration), value: highlight)
+            // NO animation on the Group.
+            //
+            // It was here so the icons eased in place and so the child
+            // transition had a timing context, and it did both — including to
+            // the one thing that must never ease, the offsets. An ambient
+            // animation reaches every animatable property beneath it, and a
+            // modifier nearer the leaf does not reliably take it back.
+            // Both jobs are done a few lines up now, per piece, below the
+            // offsets.
+
+            // THE RUBBER BAND, DRAWN LAST.
+            //
+            // It used to sit with the rest of the pointer, underneath the icons,
+            // and that is why its end appeared to stop at the highlighted icon's
+            // near EDGE. It was never stopping short — it reached the centre and
+            // the icon, an opaque disc, was painted over the last stretch of it.
+            //
+            // A line hidden by the thing it points AT is telling you the wrong
+            // story: the whole job of this line is to say "your hand has THIS
+            // one", and the connection it draws has to be visible at the end
+            // that matters. So it goes over the top, and terminates in a small
+            // node at the exact centre — which is also what makes it read as a
+            // connection rather than as a line that happens to end nearby.
+            leaderLayer(m)
 
             guideLabels(m)
         }
@@ -1461,9 +1496,55 @@ struct RadialMenu: View {
     private func childCenter(parent slot: Int, child: Int, of count: Int,
                              item: RadialMenuItem, _ m: RadialMenuMetrics) -> CGPoint {
         let base = childPosition(parent: slot, child: child, of: count, m)
-        guard highlight.child == item, m.childNudge > 0 else { return base }
+        let amount = childNudgeAmount(base, item, of: count, m)
+        guard amount > 0 else { return base }
         let d = childOutward(base, slot, m)
-        return CGPoint(x: base.x + d.x * m.childNudge, y: base.y + d.y * m.childNudge)
+        return CGPoint(x: base.x + d.x * amount, y: base.y + d.y * amount)
+    }
+
+    /// The SAME rule the top-level ring uses, applied to a sub-menu.
+    ///
+    /// Children used to lean only when actually selected — a step, not a
+    /// gradient — while the categories above them leaned continuously toward
+    /// your hand under `nudge spread`. Two halves of one menu answering the
+    /// same gesture differently, and the sub-menu felt inert by comparison
+    /// because it was: nothing acknowledged you until you had arrived.
+    ///
+    /// Distance is measured in CHILD SEATS rather than points, exactly as
+    /// `seatDistance` does for the ring, so one `nudge spread` means the same
+    /// thing in both — "how many seats either side of my hand react" — no
+    /// matter that a child seat is a different size from a category seat.
+    private func childNudgeAmount(_ base: CGPoint, _ item: RadialMenuItem,
+                                  of count: Int,
+                                  _ m: RadialMenuMetrics) -> CGFloat {
+        guard m.childNudge > 0, let p = activePointer(m) else { return 0 }
+        // Same gate as the ring: nothing reacts before the hand has moved.
+        guard hypot(p.x, p.y) >= max(m.deadZone, 0.75) else { return 0 }
+
+        let spread = max(style.nudgeSpread, 0)
+        guard spread > 0.001 else {
+            return highlight.child == item ? m.childNudge : 0
+        }
+        // A child seat's width, in the units this layout actually spaces by.
+        //
+        // The ACTUAL step, not the minimum one: `childSpread` widens the fan
+        // beyond `childMinStepDegrees` most of the time, and measuring against
+        // the floor would make a wide fan behave as though its children were
+        // packed tight — one seat of spread would cover several of them.
+        let step: CGFloat
+        switch style.layout {
+        case .radial:
+            let stepDeg = count > 1
+                ? max(style.childSpread / Double(count - 1), m.childMinStepDegrees)
+                : 0
+            let r = m.ringRadius + m.childGap
+            step = max(r * CGFloat(stepDeg * .pi / 180), 1)
+        case .vertical, .horizontal:
+            step = max(m.childSpacing, 1)
+        }
+        let d = hypot(p.x - base.x, p.y - base.y) / step
+        guard d < spread else { return 0 }
+        return m.childNudge * CGFloat(0.5 * (1 + cos(.pi * Double(d / spread))))
     }
 
     /// Outward for a CHILD is along its OWN radius, not its parent's. On a wide
@@ -1750,6 +1831,28 @@ struct RadialMenu: View {
         }
     }
 
+    @ViewBuilder
+    private func leaderLayer(_ m: RadialMenuMetrics) -> some View {
+        if style.showPointer, style.showPointerLeader,
+           let raw = activePointer(m),
+           let lit = highlight.parent.flatMap({ items.firstIndex(of: $0) }) {
+            let p = clampedPointer(raw, m)
+            let c = iconCenter(lit, m)
+            let tint = Color.white.opacity(style.pointerOpacity)
+            let w = max(m.iconSize * max(style.pointerLineWidth, 0.001), 0.5)
+
+            Segment(from: p, to: c)
+                .stroke(tint.opacity(0.45), lineWidth: w * 1.5)
+
+            // The node. Small, solid, dead centre — the full stop on the
+            // sentence the line is making.
+            Circle()
+                .fill(tint.opacity(0.85))
+                .frame(width: w * 3.2, height: w * 3.2)
+                .offset(x: c.x, y: c.y)
+        }
+    }
+
     private func clampedPointer(_ p: CGPoint, _ m: RadialMenuMetrics) -> CGPoint {
         let bound = pointerBound(m)
         switch style.layout {
@@ -1787,15 +1890,6 @@ struct RadialMenu: View {
 
             }
 
-            if style.showPointerLeader {
-                // The leader: pointer → whatever it currently has. This is the
-                // mapping the user was being asked to infer.
-                if let lit = highlight.parent.flatMap({ items.firstIndex(of: $0) }) {
-                    Segment(from: p, to: iconCenter(lit, m))
-                        .stroke(tint.opacity(0.45), lineWidth: w * 1.5)
-                }
-            }
-
             Circle()
                 .fill(tint)
                 .frame(width: d, height: d)
@@ -1813,6 +1907,73 @@ struct RadialMenu: View {
     }
 
     // MARK: pieces
+
+    /// One child of the open category. Extracted for the same reason `seat` is:
+    /// the type-checker gives up on a chain this long inside two nested
+    /// `ForEach`es.
+    @ViewBuilder
+    private func childSeat(_ child: RadialMenuItem, from p: CGPoint,
+                           to cp: CGPoint, _ m: RadialMenuMetrics) -> some View {
+        iconButton(child, size: m.childIconSize,
+                   highlighted: highlight.child == child)
+            .transition(.emerging(from: p, to: cp))
+            // The transition's timing context used to come
+            // from the Group. It comes from here now — below
+            // the offset, like everything else, so the
+            // emerge still eases and the seat still does not.
+            // ON THEIR PARENT'S SHELF, then a step beyond.
+            //
+            // Children are only ever drawn while their
+            // parent is the highlighted one, and that parent
+            // is out by a step — so the sub-menu it opened
+            // belongs at that same height. Leaving them at
+            // zero put the children BEHIND the category that
+            // produced them, which reads as the hierarchy
+            // falling away from you at the moment it opens.
+            //
+            // The one you are on then goes to two. Ring
+            // flat, open category and its children out by
+            // one, your pick out by two: each level a step,
+            // and only where you actually are.
+            .modifier(Depth(z: style.depthStep * m.fit
+                            * (highlight.child == child ? 2 : 1)))
+            .animation(.easeOut(duration: style.easeDuration),
+                       value: highlight)
+            .modifier(Pin(x: cp.x, y: cp.y))
+    }
+
+
+    /// One category on its seat.
+    ///
+    /// EXTRACTED because the inline version broke the type-checker — "unable to
+    /// type-check this expression in reasonable time". That message is not
+    /// about complexity in any human sense; it is about how many overloads
+    /// SwiftUI's builder has to consider at once, and a long modifier chain
+    /// inside a nested `ForEach` inside a `Group` reaches the limit quickly.
+    /// Naming a sub-expression costs nothing and gives the compiler a fixed
+    /// point to work from.
+    @ViewBuilder
+    private func seat(_ item: RadialMenuItem, at i: Int, on isOn: Bool,
+                      _ p: CGPoint, _ m: RadialMenuMetrics) -> some View {
+        iconButton(item, size: m.iconSize,
+                   highlighted: isOn && highlight.child == nil,
+                   // The arrow points the way this item's children will come
+                   // out, and retires once they're out.
+                   arrow: item.children.isEmpty ? nil : outward(i, m),
+                   arrowLit: arrowIsLit(item, highlighted: isOn, m))
+            // Out only while it is the one you are ON — and note `isOn` rather
+            // than the `highlighted:` argument above, which goes false the
+            // moment a CHILD is picked. The category you are inside is still
+            // the category you are inside; it dims to hand the highlight to its
+            // child, but it must not drop back to the plane or the whole
+            // hierarchy collapses the instant you reach into it.
+            .modifier(Depth(z: isOn ? style.depthStep * m.fit : 0))
+            // The ease is safe here: `Pin` below cannot be interpolated, so
+            // nothing this animation touches can move the icon off its seat.
+            .animation(.easeOut(duration: style.easeDuration), value: highlight)
+            .modifier(Pin(x: p.x, y: p.y))
+    }
+
 
     /// Radial: the center. Linear: BESIDE the highlighted icon — level with its
     /// row in a column, under its column in a row — but always on the OUTSIDE of
@@ -1963,9 +2124,62 @@ struct RadialMenu: View {
 
 /// A line between two points expressed relative to the view's CENTRE, which is
 /// the same origin every offset in this file uses.
+/// A translation nothing can ease, and the reason the eases could come back.
+///
+/// `.offset` is animatable, so ANY ambient animation reaching an icon tweened
+/// its position — which is what made the rubber band's dot arrive at the seat
+/// the icon was travelling to rather than the one it was on. Four attempts went
+/// into keeping animations away from that offset by scope, and scope kept
+/// losing.
+///
+/// A `GeometryEffect` whose `animatableData` is `EmptyAnimatableData` has
+/// nothing to interpolate: SwiftUI is handed no numbers to tween, so every
+/// frame simply uses the current translation. Position is welded by TYPE rather
+/// than by placement, which means fill, scale and the depth pop can go back to
+/// easing without any risk of catching the seat on the way past.
+///
+/// Fixing the category of the problem rather than each instance of it.
+private struct Pin: GeometryEffect {
+    var x: CGFloat
+    var y: CGFloat
+    var animatableData: EmptyAnimatableData {
+        get { EmptyAnimatableData() }
+        set { }
+    }
+    func effectValue(size: CGSize) -> ProjectionTransform {
+        ProjectionTransform(CGAffineTransform(translationX: x, y: y))
+    }
+}
+
 private struct Segment: Shape {
     var from: CGPoint
     var to: CGPoint
+
+    
+/// DELIBERATELY not animatable — see the rubber band's own comment.
+    ///
+    /// A `Shape` with `animatableData` interpolates whenever any enclosing
+    /// animation is running, whether or not that animation was meant for it.
+    /// This line's ends move for two unrelated reasons and must not be tweened
+    /// by either.
+    ///
+    /// The attempt is recorded because it nearly worked and the next person will
+    /// have the same idea. The band was reaching PAST the icon and touching its
+    /// outer wall, which looked like an overlap and was really the line arriving
+    /// early: it snapped to the icon's final nudged centre while the icon was
+    /// still easing there. The obvious repair was to make the far end
+    /// `animatableData` and give it the icon's curve.
+    ///
+    /// It made things worse, and the reason is geometric. The two do not move
+    /// alike. When the highlight jumps, this line's far end travels ACROSS THE
+    /// RING; the icon only nudges outward in place. One curve cannot serve
+    /// both — matched to the nudge it crawls the long way round, matched to the
+    /// jump it snaps the nudge.
+    ///
+    /// The answer was to stop animating POSITION on either of them, so the two
+    /// agree by construction rather than by two timings being kept in step by
+    /// hand. `label` above has used the same trick for the same reason since
+    /// round 8.
     func path(in r: CGRect) -> Path {
         var p = Path()
         p.move(to: CGPoint(x: r.midX + from.x, y: r.midY + from.y))
@@ -1982,6 +2196,42 @@ private struct Triangle: Shape {
         p.addLine(to: CGPoint(x: r.minX, y: r.maxY))
         p.closeSubpath()
         return p
+    }
+}
+
+/// Standing a level of the hierarchy off the plane.
+///
+/// ⚠️ THE ONLY `#if` IN THIS FILE, and it is worth knowing why it had to be
+/// here rather than in the host.
+///
+/// Depth is a property of the MENU's design — how far a child floats above its
+/// parent is the same kind of decision as how far it sits from it — so it
+/// belongs with the geometry. But the host cannot apply it: the icons are
+/// private to this view, and reaching in to lift them individually is exactly
+/// the coupling the component/host split exists to prevent.
+///
+/// The two branches are not two implementations of one thing. On visionOS
+/// `offset(z:)` moves the view in actual space and perspective does the rest —
+/// nothing is faked. Everywhere else there is no Z to move along, so depth is
+/// RENDERED rather than had: a touch of scale and a shadow that grows with the
+/// lift. Deliberately understated, because an overdone fake reads as a bug
+/// rather than as height.
+///
+/// Note the cost this file just paid. Its lack of conditionals is what proved
+/// the device and the simulator were running byte-identical layout code when
+/// the sub-menu bug appeared. That diagnostic is now one branch weaker, which
+/// is a fair price for depth and worth writing down rather than forgetting.
+private struct Depth: ViewModifier {
+    let z: CGFloat
+    func body(content: Content) -> some View {
+        #if os(visionOS)
+        content.offset(z: z)
+        #else
+        content
+            .scaleEffect(1 + z * 0.0016)
+            .shadow(color: .black.opacity(min(Double(z) * 0.012, 0.5)),
+                    radius: max(z * 0.28, 0), x: 0, y: max(z * 0.14, 0))
+        #endif
     }
 }
 

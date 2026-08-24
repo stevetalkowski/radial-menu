@@ -112,6 +112,7 @@ enum RadialMenuExport {
         put("originScale", n(s.originScale))
         put("originLineWidth", n(s.originLineWidth))
         put("pointerLineWidth", n(s.pointerLineWidth))
+        put("depthStep", n(s.depthStep))
         return out
     }
 

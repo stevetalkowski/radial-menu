@@ -30,6 +30,7 @@ struct RadialMenuApp: App {
 
     /// Named once, used by the scene and by the button that opens it.
     static let spatialSpaceID = "radialmenu.spatial"
+    static let volumeID = "radialmenu.volume"
 
     var body: some Scene {
         WindowGroup {
@@ -53,6 +54,24 @@ struct RadialMenuApp: App {
         .defaultSize(width: 1100, height: 800)
 
         #if os(visionOS)
+        // A VOLUME: the same menu, in a box you can pick up.
+        //
+        // The immersive space below has no system chrome by design — no bar, no
+        // handle, nothing to take hold of — so repositioning it means going back
+        // to the very panel it is floating in front of. A volume is bounded and
+        // the system gives it a grab bar for free, which fixes reachability
+        // structurally rather than by making the plane smaller and hoping.
+        //
+        // Both exist because they answer different questions. A volume is the
+        // one to demo; the immersive space is the one that can sit at an exact
+        // arm's length with nothing around it at all.
+        WindowGroup(id: RadialMenuApp.volumeID) {
+            SpatialMenuView(model: model, inVolume: true)
+                .preferredColorScheme(.dark)
+        }
+        .windowStyle(.volumetric)
+        .defaultSize(width: 0.9, height: 0.9, depth: 0.25, in: .meters)
+
         ImmersiveSpace(id: RadialMenuApp.spatialSpaceID) {
             SpatialMenuView(model: model)
         }

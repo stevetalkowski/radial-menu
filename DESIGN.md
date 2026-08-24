@@ -1692,6 +1692,54 @@ fixed it by construction and read better anyway: the rim IS what `icon size`
 moves. Orange now means editable throughout, and the cyan measure guides keep
 their own meaning.
 
+## What belongs to the design and what belongs to the machine (round 30, 2026-08-24)
+
+Two rounds of small corrections that turn out to be the same question asked
+about different things: does this setting describe the MENU, or the place you
+happen to be sitting?
+
+**The cue was on the wrong side of that line.** Sound went in with the rule
+"sound belongs to the machine", which is right for the on/off switch and the
+volume — nobody exporting a tuned menu means "and it should be silent on your
+laptop too". It is wrong for WHICH sound. Choosing a thock over a bubble is the
+same kind of decision as choosing the nudge or the gutter, and a menu arriving on
+another device having forgotten what it sounds like has lost part of itself. So
+`cue` moved onto `MenuPreset` and rides in the JSON; `sfxOn` and the volume
+stayed local. Steve found it the only way anyone would: by exporting a file and
+reading it.
+
+**Two properties, one name.** Moving `cue` into the preset failed to compile
+because the setter was written as `var c = config; c.cue = x; config = c` —
+copied from `TunerView`, where `config` is a settable shim, into `MenuModel`,
+where it is a get-only computed property over `configs`. The idiom was right for
+the file it came from. Worth remembering before copying a line across a
+boundary: the same name on both sides of one is not a promise of the same
+capability.
+
+**An `AVAudioEngine` is not something you start once.** Closing the visionOS
+window kept the process alive and preserved the `MenuAudio` object, while the
+system stopped its engine underneath — so the app came back silent and only a
+force quit fixed it, which is exactly the shape of "an object outlived the
+resource it was holding". Started once in `load()` and trusted forever.
+
+The repair is `ensureRunning()` at the point of use rather than a subscription
+to a notification. There is no single notification covering a window closing, a
+route change, a foreground loss and a media-services reset — enumerating them
+means being wrong about the one you forgot. Reading `isRunning` costs a boolean
+per pop and cannot be incomplete. The session also moved to `.ambient` with
+`.mixWithOthers`, which makes the underlying stop less likely as well as
+recoverable: a session that never claims the route is one the system has far
+less reason to tear down.
+
+**And the launch pop.** The app opens in preview with a pose already set, so the
+first layout resolved a highlight — a change, as far as `onChange` is concerned,
+and it made a noise before anyone had touched anything. A menu greeting you is
+not feedback; there is nothing being fed back. Latched rather than timed: a
+delay would have been a guess about how long "still starting up" lasts, while
+"has the user done anything yet" is the question that actually decides it, and
+the latch is evaluated inside the highlight handler so no `onChange` ordering
+can swallow the first real pop.
+
 ## Where this is heading
 
 The menu is meant to be summoned **on whatever you're gazing at** — an object, empty space, or

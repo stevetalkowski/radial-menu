@@ -118,15 +118,45 @@ final class MenuAudio {
             e.connect(p, to: e.mainMixerNode, format: fmt)
             players.append(p)
         }
+        engine = e
+        ensureRunning()
+    }
+
+    /// START IT IF IT IS NOT RUNNING, every time we are about to make a noise.
+    ///
+    /// ⚠️ An `AVAudioEngine` is not something you start once. The system stops
+    /// it out from under you — a window closing, the app losing the foreground,
+    /// a route change, media services resetting — and none of that arrives
+    /// anywhere this class was looking. Starting it in `load()` and trusting it
+    /// forever was the bug: on visionOS, closing the window keeps the process
+    /// alive and preserves this object, so the app came back with a dead engine
+    /// and stayed silent until a force quit built a new one.
+    ///
+    /// Checking `isRunning` at the point of use costs one boolean per pop and
+    /// removes the whole class of "it stopped and nobody noticed". There is no
+    /// single notification that covers every case, so this does not try to
+    /// enumerate them — it just never assumes.
+    private func ensureRunning() {
+        guard let e = engine, !e.isRunning else { return }
+
+        #if !os(macOS)
+        // `.ambient` and mixing, deliberately: UI feedback should never duck
+        // somebody's music or claim the route — and a session that does not
+        // claim the route is one the system has far less reason to tear down.
+        let session = AVAudioSession.sharedInstance()
+        try? session.setCategory(.ambient, mode: .default, options: [.mixWithOthers])
+        try? session.setActive(true)
+        #endif
+
         do {
             try e.start()
-            players.forEach { $0.play() }
-            engine = e
+            // Player nodes stop with the engine and have to be told to play
+            // again — a buffer scheduled on a stopped node is dropped in
+            // silence, which is the same symptom with a different cause.
+            players.forEach { if !$0.isPlaying { $0.play() } }
         } catch {
             // Silent on purpose. No audio route — a simulator being odd about
             // one, a headset mid-handoff — is not a reason for a menu to stop.
-            engine = nil
-            players = []
         }
     }
 
@@ -145,6 +175,8 @@ final class MenuAudio {
     /// this class keeps any state at all.
     func pop() {
         guard enabled, !buffers.isEmpty, engine != nil, !players.isEmpty else { return }
+        ensureRunning()
+        guard engine?.isRunning == true else { return }
         var i = Int.random(in: 0..<buffers.count)
         if buffers.count > 1 && i == lastClip { i = (i + 1) % buffers.count }
         lastClip = i

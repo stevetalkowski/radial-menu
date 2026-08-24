@@ -386,6 +386,8 @@ Everything is live, and the panel prints what each ratio resolves to in points.
 | **nudge spread** | how far the highlight's pop-out spreads to neighbours. Above 0 you get continuous feedback *between* icons instead of all-or-nothing. |
 | **pick at** | how far out you travel before ANYTHING highlights, as a fraction of the trip to the icons. At 0 the first pixel of movement picks whatever lies along that heading. Start here if the menu feels twitchy. |
 | **submenu at** | how far you travel past an item before its children appear |
+| **depth** | how far the level you are ON stands off the plane. The ring stays flat; the category you are on comes out a step and carries its open sub-menu with it; the child you are on goes out two. Real Z in a headset, drawn as scale and shadow on a flat screen. |
+| **pointer weight** | line weight for the spoke and the rubber band, × icon size — instrumentation that ships, so it has to stay readable as the dial scales |
 | **fit to window** | shrink to fit rather than overflow |
 
 Every value can be **typed**, not just dragged: tap the number and a keypad
@@ -402,9 +404,23 @@ them.
 
 A cue fires each time the pick LANDS somewhere new — a category or a child.
 Never on the way back out: leaving an icon is not arriving anywhere. There is a
-**sound** toggle, a **level** slider and six cues in the panel, and picking one
+**sound** toggle, a **level** slider and nine cues in the panel, and picking one
 plays it, because a cue you have to go and trigger to audition is a cue you
 compare from memory.
+
+**The cue travels with the design; the level does not.** Which sound a menu makes
+is the same kind of decision as its nudge or its gutter, so `cue` is a field on
+the preset and rides along in the exported JSON — import on another device and
+the menu still knows what it sounds like. Whether sound plays at all, and how
+loud, stays in UserDefaults on that machine: nobody exporting a tuned menu means
+"and it should be silent on your laptop too". A side effect of living in the
+preset is that the cue is per-LAYOUT, which seems right — a column and a dial are
+different instruments.
+
+Nothing sounds at launch. The first layout resolves a highlight, which is a
+change as far as `onChange` is concerned, and a menu greeting you is not
+feedback — there is nothing being fed back. The cue arms the first time you
+actually touch something.
 
 | cue | |
 |---|---|
@@ -468,10 +484,28 @@ moves at all.
 
 ## See it in the room (visionOS)
 
-Turn on **spatial view** and the same menu is drawn in an immersive space with
-no window behind it, at a distance, height and scale you dial from the panel. A
-pane gives the menu a frame, a background and a scale that a room will not, so
-every judgement you make inside one is partly a judgement about the pane.
+Two ways, because they answer different questions.
+
+**volume window** puts the menu in a bounded box with a system grab bar under
+it — pick it up, move it anywhere, put it down. Bounded means it cannot swallow
+the room's gaze, so your other windows stay reachable. Placement is yours rather
+than the panel's, so `distance` and `height` do not apply there; `scale` still
+does. This is the one to demo.
+
+**spatial view** draws the same menu in an immersive space with no window behind
+it, at a distance, height and scale you dial from the panel. An immersive space
+gets no system chrome at all — no bar, nothing to take hold of — which is the
+cost of being able to place it at an exact arm's length with nothing around it.
+
+Either way a pane gives the menu a frame, a background and a scale that a room
+will not, so every judgement you make inside one is partly a judgement about the
+pane.
+
+The menu always draws in the MIDDLE of its plane, wherever you pinched. A window
+has visible edges you aimed within; a plane in a room has none, so pinching near
+a corner used to put the menu half outside a boundary you could not see. Nothing
+is lost by centring it: the pointer is a delta from wherever the gesture began,
+so your hand still drives it from where your hand actually is.
 
 The component does not change to do this — it takes a pointer offset and
 publishes a highlight, and has no opinion about what is holding it. Only the
@@ -483,10 +517,27 @@ still reachable while the space is open. **show reach** dashes that edge so you
 can see where it is instead of finding it by bumping into it. It tracks the
 menu, so it grows and shrinks as you tune.
 
-Input is the ordinary system pinch. Detecting a *different* pinch — middle
-finger to thumb, say — is not a gesture the system delivers to apps at all; it
-needs ARKit hand tracking, which means an immersive space, an entitlement and an
-authorization prompt.
+Input is the ordinary system pinch.
+
+### The middle-finger pinch, and why it is switched off
+
+`HandTracker.swift` reads `thumbTip` and `middleFingerTip` from the hand
+skeleton and decides for itself, because **visionOS reports exactly one pinch to
+apps** — index to thumb — and a middle-finger pinch is not a gesture the system
+recognises, reports or has any API for. It works, in two schemes: one-handed
+(the menu stays where you pinched) and two-handed (the left hand carries it, the
+right reaches, a right pinch commits).
+
+It ships **gated off** behind `MenuModel.handDemoEnabled`. Not deleted — a
+working ARKit path is worth keeping — but a half-tuned novelty in a build meant
+to show a menu is a distraction from the menu. One constant brings back the
+panel section, the session and the permission prompt together.
+
+Three constraints, none of which better code would remove: it needs an immersive
+space (`HandTrackingProvider` returns nothing in a window or a volume), it needs
+permission with a usage string in the Info.plist, and the pinch threshold is a
+guess until you measure it — which is why the live thumb-to-middle distance is
+published for the panel to draw.
 
 ---
 
@@ -494,7 +545,7 @@ authorization prompt.
 
 | | gesture | panel |
 |---|---|---|
-| visionOS | pinch and drag | side column |
+| visionOS | pinch and drag | side column · plus a movable volume and an immersive space |
 | macOS | drag with either mouse button | side column, resizable divider |
 | iPadOS | touch and drag | side column in landscape, pull-up section in portrait |
 | iOS | touch and drag | pull-up section in portrait, side column in landscape |
@@ -505,6 +556,42 @@ beside the stage, which is the Mac layout. The Mac and the headset never flip �
 their windows are resized by hand and continuously, and a panel that jumped from
 the right edge to the bottom as you dragged past square would be the layout
 rearranging itself mid-gesture.
+
+---
+
+## Where the files go
+
+Both exports write to the app's **Documents** directory and then hand you a
+share sheet on top of that. Two files, and they are different things:
+
+| file | what it is |
+|---|---|
+| `<name>.swift` | the code export — also copied to the clipboard, so on a Mac you rarely need the file |
+| `<name>.json` | the project: presets, items, and the sound cue |
+
+**On macOS** it is your real `~/Documents`:
+
+```bash
+ls -lt ~/Documents/*.json ~/Documents/*.swift | head
+```
+
+Not a sandbox container, and that is a consequence of `RadialMenu.entitlements`
+being deliberately empty — no capabilities means no `app-sandbox` key, which
+means no container, which means `.documentDirectory` is the folder you already
+know. Convenient for a tool you are going to be pulling files out of all day.
+Add the sandbox entitlement and the same code starts writing to
+`~/Library/Containers/<bundle-id>/Data/Documents/` instead, which is worth
+knowing before you wonder where your export went.
+
+**On iOS, iPadOS and visionOS** it is the app's sandboxed Documents folder,
+browsable in **Files → On My Device → Radial Menu** — read *and* write, so
+dropping a `.json` in there is how you get one INTO the app. The share sheet is
+the easier route off a device; the folder matters more for the other direction.
+
+The export resolves its metrics with `available: nil` on purpose, so the numbers
+in the file are the DESIGN values rather than whatever your current window
+squeezed them down to. Export from a small window and you still get the real
+geometry.
 
 ---
 

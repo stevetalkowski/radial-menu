@@ -16,6 +16,26 @@
 import Observation
 import SwiftUI
 
+/// The two ways a hand can drive this menu, and they are not variations on one
+/// idea — they resolve a real conflict in opposite directions.
+///
+/// A menu summoned by a hand and PARENTED to that same hand cannot be operated
+/// by it: the origin moves with the pointer, so their difference is always zero
+/// and there is nothing to read. One-handed dodges that by leaving the menu
+/// where you pinched — you move relative to a point in the room. Two-handed
+/// dodges it by splitting the roles: the menu rides your left hand, the right
+/// hand reaches for what it wants, and because BOTH move together when you
+/// shift your body, the offset between them is stable while you walk around.
+enum HandScheme: String, CaseIterable, Identifiable, Codable {
+    /// Either hand. Pinch summons the menu where you pinched, and it stays
+    /// there; that same hand moves away from it to pick.
+    case oneHanded
+    /// Left holds the menu and carries it. Right reaches. Right pinch commits.
+    case twoHanded
+    var id: String { rawValue }
+    var label: String { self == .oneHanded ? "one hand" : "two hands" }
+}
+
 @Observable
 final class MenuModel {
 
@@ -93,10 +113,32 @@ final class MenuModel {
     ///
     /// Low and short wins for the same reason: it reads as weight rather than as
     /// brightness, and brightness is what fatigues over a long session.
-    static let cueKey = "radialmenu.cue"
     static let sfxVolumeKey = "radialmenu.sfx.volume"
-    var cue: MenuCue = MenuCue(rawValue: UserDefaults.standard.string(forKey: MenuModel.cueKey) ?? "") ?? .thock {
-        didSet { UserDefaults.standard.set(cue.rawValue, forKey: MenuModel.cueKey) }
+
+    /// Reads and writes the PRESET, not UserDefaults.
+    ///
+    /// It used to live on this machine with `sfxOn` and the volume, and that was
+    /// half right. Whether sound plays at all, and how loud, is a property of
+    /// where you are sitting. WHICH sound is a property of the menu — the same
+    /// kind of decision as the nudge or the gutter — so it belongs in the file
+    /// you export, and a menu arriving on another device should still know what
+    /// it sounds like.
+    ///
+    /// Per LAYOUT, as a side effect of living in the preset, which is arguably
+    /// right: a column and a dial are different instruments and may want
+    /// different voices.
+    var cue: MenuCue {
+        get { config.cue }
+        // Straight into `configs`, because `config` is get-only HERE. TunerView
+        // has a settable shim of the same name — which is why the read-modify-
+        // write dance is spelled `config = c` everywhere in that file and cannot
+        // be spelled that way in this one. Two properties, one name, different
+        // capabilities: worth knowing before copying a line across.
+        set {
+            var c = config
+            c.cue = newValue
+            configs[layout.rawValue] = c
+        }
     }
     var sfxVolume: Double = (UserDefaults.standard.object(forKey: MenuModel.sfxVolumeKey) as? Double) ?? 0.6 {
         didSet { UserDefaults.standard.set(sfxVolume, forKey: MenuModel.sfxVolumeKey) }
@@ -151,7 +193,40 @@ final class MenuModel {
     // Tunable rather than guessed: nobody picks the right arm's length for a
     // headset from a text editor, which is this app's premise applied to itself.
 
+    /// Middle-finger pinch, read from the joints. Immersive space only — see
+    /// HandTracker for why that is a constraint and not a shortcut.
+    /// The hand-tracking demo is BUILT and switched off.
+    ///
+    /// It works, and it is not finished: the two schemes need real tuning
+    /// against Quads' actual gestures, and a half-tuned novelty in a build meant
+    /// to show the layout is a distraction from the thing being shown. Deleting
+    /// it would throw away a working ARKit path over a scheduling decision, so
+    /// it is gated instead — one constant, and the panel section, the ARKit
+    /// session and the permission prompt all come back together.
+    ///
+    /// `HandTracker.swift` stays compiled either way, so it cannot rot quietly
+    /// while it is switched off.
+    static let handDemoEnabled = false
+
+    var handsOn = false
+    /// Which hand does what.
+    var handScheme: HandScheme = .twoHanded
+    /// How far a hand travels for a given distance on the menu's plane.
+    ///
+    /// A conversion, and one nobody should have to trust me about: visionOS
+    /// renders attachments at roughly 1360 points per metre, so that is the
+    /// default — but it is a knob, because the number that matters is how far
+    /// YOUR arm moves to cross the ring, and that is measured, not looked up.
+    var handPointsPerMetre: Double = 1360
+    /// Live, for the panel to draw. Written by the tracker, read by nobody else.
+    var handGap: Double = 0
+    var handNote = "off"
+
     var spatialOn = false
+    /// The volume. Mutually exclusive with the immersive space — both draw the
+    /// same menu from this same model, and two scenes publishing `metrics` and
+    /// recomputing `highlight` from different boxes would fight over both.
+    var volumeOn = false
     /// Draw the edge of the area that catches a pinch, while LIVE.
     ///
     /// On by default, which reverses an earlier call. The original reasoning was
@@ -162,11 +237,17 @@ final class MenuModel {
     /// job badly.
     var spatialShowReach = true
     /// In front of where you were standing when the space opened.
-    var spatialDistance: Double = 0.7
+    ///
+    /// These three are Steve's headset numbers, not guesses. The shipped set was
+    /// close enough to your face and large enough that the plane's interactive
+    /// area covered the app's own window — so the toggle that turns the spatial
+    /// view OFF was behind a surface that swallowed every glance aimed at it.
+    /// A default that can trap you is not a default.
+    var spatialDistance: Double = 1.0
     /// Up from the floor. Negative is allowed, because which way is up in an
     /// immersive space is a thing to confirm by dragging, not by assuming.
-    var spatialHeight: Double = 1.2
-    var spatialScale: Double = 1
+    var spatialHeight: Double = 1.08
+    var spatialScale: Double = 0.5
 
     // MARK: derived — the two things any scene needs to draw
 

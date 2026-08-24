@@ -29,7 +29,24 @@ import SwiftUI
 
 struct SpatialMenuView: View {
     @Bindable var model: MenuModel
+
+    /// A VOLUME places itself and you move it by hand, so the distance and
+    /// height knobs have nothing to act on — the system bar under the box is
+    /// the placement control, and a second one in the panel would just disagree
+    /// with it. Scale still applies: that is about the menu, not about where the
+    /// box is.
+    var inVolume = false
     @State private var holdTask: Task<Void, Never>?
+    @State private var hands = HandTracker()
+    /// Where the pinch STARTED, in world metres. The menu draws centred and the
+    /// pointer is the displacement from here — the same contract the mouse and
+    /// the touch paths already use, so the component learns nothing new.
+    @State private var pinchOrigin: SIMD3<Float>?
+    /// Where the menu should sit while a hand is carrying it. `nil` means it is
+    /// wherever the placement knobs say.
+    @State private var carried: SIMD3<Float>?
+    /// So a right-hand pinch commits once per pinch instead of every frame.
+    @State private var rightWasPinched = false
 
     /// One id, named once.
     private static let attachmentID = "radialmenu.attachment"
@@ -47,6 +64,113 @@ struct SpatialMenuView: View {
     }
 
     var body: some View {
+        realityBody
+            .task(id: model.handsOn) {
+                guard MenuModel.handDemoEnabled, !inVolume else { return }
+                if model.handsOn { await hands.start() } else { hands.stop() }
+                model.handNote = hands.status
+            }
+            // A middle-finger pinch is not a gesture, so there is no gesture
+            // callback to hang this on — observing the tracker's published
+            // values IS the event stream.
+            .onChange(of: hands.right.gap) { _, _ in absorbHands() }
+            .onChange(of: hands.left.gap) { _, _ in absorbHands() }
+            .onChange(of: hands.right.pinched) { _, _ in absorbHands() }
+            .onChange(of: hands.left.pinched) { _, _ in absorbHands() }
+            .onDisappear { hands.stop() }
+    }
+
+    /// Pinch down summons, movement steers, release confirms — the same three
+    /// beats as a mouse drag, which is exactly why nothing below the host has to
+    /// change to accept a gesture the system does not report.
+    private func absorbHands() {
+        guard MenuModel.handDemoEnabled,
+              model.handsOn, !inVolume, !model.previewOn else { return }
+        model.handNote = hands.status
+        switch model.handScheme {
+        case .oneHanded: oneHanded()
+        case .twoHanded: twoHanded()
+        }
+    }
+
+    /// EITHER hand, which is the fix for "it only worked on the right".
+    ///
+    /// There was never a reason for a side here — I read `hands.right` and
+    /// stopped. A one-handed gesture belongs to whichever hand you happened to
+    /// use, and a left-hander discovering the app works for other people is the
+    /// worst possible way to learn about a hardcoded assumption.
+    private func oneHanded() {
+        carried = nil
+        let h: HandTracker.Hand = hands.right.pinched ? hands.right
+                                : hands.left.pinched  ? hands.left
+                                : (hands.right.gap <= hands.left.gap ? hands.right : hands.left)
+        model.handGap = Double(h.gap.isFinite ? h.gap : 0)
+
+        if h.pinched {
+            if pinchOrigin == nil {
+                pinchOrigin = h.position
+                model.menuShown = true
+            }
+            guard let o = pinchOrigin else { return }
+            steer(by: h.position - o)
+        } else if pinchOrigin != nil {
+            pinchOrigin = nil
+            commit()
+        }
+    }
+
+    /// Left carries, right reaches, right pinch commits.
+    ///
+    /// The pointer is the RIGHT hand's offset from the LEFT — not from a fixed
+    /// point in the room — which is what makes this survive you turning around
+    /// or walking to the window. Both terms move together, so their difference
+    /// only changes when you actually reach for something.
+    private func twoHanded() {
+        let l = hands.left, r = hands.right
+        model.handGap = Double(l.gap.isFinite ? l.gap : 0)
+
+        guard l.pinched, l.tracked else {
+            if model.menuShown { commit() }
+            carried = nil; pinchOrigin = nil; rightWasPinched = false
+            return
+        }
+
+        model.menuShown = true
+        // Held a little in FRONT of the hand rather than inside it: at the
+        // joint itself your own fingers occlude the middle of the ring, which
+        // is exactly where the label goes.
+        carried = l.position + SIMD3<Float>(0, 0.02, 0.06)
+        pinchOrigin = l.position
+
+        if r.tracked { steer(by: r.position - l.position) }
+
+        // Edge, not level. Committing on the level would fire every frame the
+        // right hand stayed closed.
+        if r.pinched && !rightWasPinched {
+            commit()
+            model.menuShown = true       // stays up: the left hand still holds it
+        }
+        rightWasPinched = r.pinched
+    }
+
+    /// Metres to points, on the plane's own axes. RealityKit y is up, SwiftUI y
+    /// is down; divided by scale because a plane drawn at half size needs twice
+    /// the points for the same amount of arm.
+    private func steer(by d: SIMD3<Float>) {
+        let k = model.handPointsPerMetre / max(model.spatialScale, 0.05)
+        let g = max(model.style.pointerGain, 0.05)
+        model.pointer = CGPoint(x: CGFloat(Double(d.x) * k * g),
+                                y: CGFloat(Double(-d.y) * k * g))
+    }
+
+    private func commit() {
+        model.lastConfirmed = model.highlight.action == nil
+            ? "cancelled (center)" : model.highlight.labelText
+        model.pointer = nil
+        model.menuShown = false
+    }
+
+    private var realityBody: some View {
         RealityView { content, attachments in
             guard let menu = attachments.entity(for: Self.attachmentID) else { return }
             place(menu)
@@ -65,9 +189,13 @@ struct SpatialMenuView: View {
     /// transforms are metres and converting at the slider would just move the
     /// confusion somewhere it is harder to see.
     private func place(_ e: Entity) {
-        e.position = SIMD3<Float>(0,
-                                  Float(model.spatialHeight),
-                                  -Float(model.spatialDistance))
+        // A hand carrying it beats every other placement, because the whole
+        // point of that scheme is that the menu goes where you put your hand.
+        e.position = inVolume
+            ? .zero                       // the volume's own centre
+            : carried ?? SIMD3<Float>(0,
+                                      Float(model.spatialHeight),
+                                      -Float(model.spatialDistance))
         e.scale = SIMD3<Float>(repeating: Float(max(model.spatialScale, 0.05)))
     }
 
@@ -109,7 +237,7 @@ struct SpatialMenuView: View {
             // than a dark canvas. Never hit-tested — it sits ON the surface it
             // describes, and a label that swallowed the thing it labels would be
             // its own small joke.
-            if !model.previewOn && model.spatialShowReach {
+            if !model.previewOn && model.spatialShowReach && !inVolume {
                 Rectangle()
                     .strokeBorder(.white.opacity(0.24),
                                   style: StrokeStyle(lineWidth: 2, dash: [18, 14]))
@@ -149,7 +277,18 @@ struct SpatialMenuView: View {
             }
 
             let c = CGPoint(x: Self.planeSide / 2, y: Self.planeSide / 2)
-            let anchor = (model.menuShown && model.menuCenter != .zero) ? model.menuCenter : c
+            // ALWAYS the middle of the plane, unlike the window.
+            //
+            // In a window the menu belongs at the pinch, because the window has
+            // visible edges you aimed within. A plane in a room has no visible
+            // edges at all — so pinching near one of its corners put the menu
+            // half outside a boundary you could not see, cropped and unreadable,
+            // with nothing on screen to explain why.
+            //
+            // Centring costs nothing, because `pointer` is a DELTA from wherever
+            // the pinch began: your hand still drives it from where your hand
+            // actually is. Only the drawing moves.
+            let anchor = c
 
             // Solved here rather than read back from `model.metrics`, for the
             // reason the pane does the same: the published copy is always last

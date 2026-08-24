@@ -37,6 +37,35 @@ struct MenuPreset: Codable, Equatable {
     var style = RadialMenuStyle()
     var hold: Double = 0
     var icons: Int = 8
+
+    /// WHICH SOUND, and it lives here rather than in UserDefaults because it is
+    /// part of the DESIGN.
+    ///
+    /// The line I drew when the audio went in was "sound belongs to the
+    /// machine", and that is right for the on/off switch and the volume —
+    /// nobody exporting a tuned menu means "and it should be silent on your
+    /// laptop too". It is wrong for the cue. Choosing a thock over a bubble is
+    /// the same kind of decision as choosing the nudge or the gutter, and a
+    /// menu that arrives on another device having forgotten what it sounds like
+    /// has lost part of itself.
+    ///
+    /// So: `cue` travels in the JSON, `sfxOn` and the volume stay local.
+    var cue: MenuCue = .thock
+
+    /// Round-1..N files have no `cue` key at all, and a preset that refuses to
+    /// load because a field was added later is a preset you have lost. Every
+    /// field here decodes the same way for the same reason.
+    private enum CodingKeys: String, CodingKey { case style, hold, icons, cue }
+
+    init() {}
+
+    init(from d: Decoder) throws {
+        let c = try d.container(keyedBy: CodingKeys.self)
+        style = ((try? c.decodeIfPresent(RadialMenuStyle.self, forKey: .style)) ?? nil) ?? RadialMenuStyle()
+        hold  = ((try? c.decodeIfPresent(Double.self, forKey: .hold)) ?? nil) ?? 0
+        icons = ((try? c.decodeIfPresent(Int.self, forKey: .icons)) ?? nil) ?? 8
+        cue   = ((try? c.decodeIfPresent(MenuCue.self, forKey: .cue)) ?? nil) ?? .thock
+    }
 }
 
 /// What lands in `Documents/radialmenu-presets.json`.
@@ -208,7 +237,7 @@ struct TunerView: View {
     /// so every `!inRoom` below compiles away to nothing on the other three.
     private var inRoom: Bool {
         #if os(visionOS)
-        return model.spatialOn
+        return model.spatialOn || model.volumeOn
         #else
         return false
         #endif
@@ -217,6 +246,8 @@ struct TunerView: View {
     #if os(visionOS)
     @Environment(\.openImmersiveSpace) private var openSpace
     @Environment(\.dismissImmersiveSpace) private var dismissSpace
+    @Environment(\.openWindow) private var openWindow
+    @Environment(\.dismissWindow) private var dismissWindow
     #endif
 
     // ── local: how the PANEL is being operated, which no other scene needs ───
@@ -234,12 +265,16 @@ struct TunerView: View {
     /// window, not to the menu. The spatial scene writes the same `highlight`,
     /// and this view is always alive to hear it, so one player covers both.
     @State private var audio = MenuAudio()
+    /// A one-way latch: silent until the user has actually done something.
+    @State private var audioArmed = false
+    /// Where the preview slot sat at launch, so moving it counts as touching it.
+    @State private var launchSlot: Double = .nan
 
     /// Drag the guides themselves. Mutually exclusive with arrange, because
     /// both want every drag on the stage and a mode that guesses which one you
     /// meant is worse than a switch.
     @State private var adjustOn = false
-    @State private var grabbed: GuideHandle?
+    @State private var grabbed: GuideGrab?
 
     @State private var arrangeOn = true
     @State private var drag: ArrangeDrag?
@@ -281,7 +316,7 @@ struct TunerView: View {
         } panel: {
             knobs
         }
-        .task { loadItems(); load() }
+        .task { loadItems(); load(); launchSlot = previewPose.slot }
         // A POP WHEN THE PICK MOVES — not when the pointer does.
         //
         // `highlight` already changes only on a real landing, which is why this
@@ -294,6 +329,9 @@ struct TunerView: View {
         // when you reach one says the same thing twice as loudly.
         // Hear it the moment you choose it — a cue you have to go and trigger
         // to audition is a cue you compare from memory.
+        // Keyed on the resolved cue rather than on the picker, so loading a
+        // preset, switching layout or importing a JSON all move the sound too.
+        // The picker is only one of the ways this value changes now.
         .onChange(of: model.cue) { _, _ in
             audio.cue = model.cue
             if model.sfxOn { audio.audition() }
@@ -302,6 +340,29 @@ struct TunerView: View {
         .task { audio.cue = model.cue; audio.volume = Float(model.sfxVolume) }
         .onChange(of: model.highlight) { was, now in
             guard model.sfxOn else { return }
+
+            // NOT AT LAUNCH.
+            //
+            // The app opens in preview with a pose already set, so the component
+            // resolves a highlight on its first layout — a change, as far as
+            // `onChange` is concerned, and it popped before anyone had touched
+            // anything. The menu greeting you is not feedback; there is nothing
+            // being fed back.
+            //
+            // Latched rather than timed. A delay would have worked and would
+            // have been a guess about how long "still starting up" lasts; this
+            // asks the only question that matters — has the user done ANYTHING
+            // — and once the answer is yes it stays yes.
+            //
+            // Evaluated in here rather than in three separate handlers, so it
+            // cannot depend on which `onChange` SwiftUI happens to run first.
+            // That ordering would otherwise decide whether the very first pop
+            // of a session is swallowed.
+            if menuShown || model.pointer != nil
+                || (!launchSlot.isNaN && previewPose.slot != launchSlot) {
+                audioArmed = true
+            }
+            guard audioArmed else { return }
             let arrived = now.child ?? now.parent
             let left = was.child ?? was.parent
             guard let arrived, arrived != left else { return }
@@ -323,7 +384,19 @@ struct TunerView: View {
         #if os(visionOS)
         // Driven from the toggle's VALUE rather than from its action, so the
         // scene follows the state even if something else flips it.
+        // Two homes, one menu. Opening either closes the other, from the VALUE
+        // rather than from the toggle's action, so anything that flips the state
+        // gets the same behaviour.
+        .onChange(of: model.volumeOn) { _, on in
+            if on {
+                model.spatialOn = false
+                openWindow(id: RadialMenuApp.volumeID)
+            } else {
+                dismissWindow(id: RadialMenuApp.volumeID)
+            }
+        }
         .onChange(of: model.spatialOn) { _, on in
+            if on { model.volumeOn = false }
             Task {
                 guard on else { return await dismissSpace() }
                 // Report WHICH failure. "Could not open" is not a diagnosis, and
@@ -395,18 +468,26 @@ struct TunerView: View {
             ZStack {
                 backdrop
 
-                // ALWAYS at the pinch point — never animate in from screen center
-                // it must appear exactly where the gesture began. menuCenter is
-                // set on pinch-down, before `menuShown` flips, so the eased
-                // appearance happens in place.
+                // ALWAYS THE MIDDLE, and this reverses an earlier decision.
                 //
-                // A PREVIEW, though, belongs in the middle: it is there to be
-                // looked at while knobs move, and it should not sit wherever the
-                // last test gesture happened to land — least of all in a corner,
-                // where fit-to-container would shrink it and skew what you see.
-                let anchor = (menuShown && menuCenter != .zero)
-                    ? menuCenter
-                    : CGPoint(x: field.width / 2, y: tray + field.height / 2)
+                // It used to appear exactly where the gesture began, on the
+                // reasoning that a menu should arrive under your hand. True in
+                // the abstract and wrong in a window: click near a corner and
+                // `fit` shrinks the whole dial to squeeze into the room that
+                // corner leaves, so the thing you summoned arrives smaller and
+                // half off the edge. You cannot read what you cannot fit.
+                //
+                // Centring costs nothing, because `pointer` is a DELTA from
+                // wherever the gesture started — the hand still drives it from
+                // where the hand actually is, and `menuCenter` still records
+                // that. Only the drawing moved. Same change the immersive
+                // space needed, for the same reason, and it should always have
+                // been the same rule.
+                //
+                // A PREVIEW belonged in the middle already, so this makes the
+                // two modes agree instead of differing for no reason a user
+                // could see.
+                let anchor = CGPoint(x: field.width / 2, y: tray + field.height / 2)
 
                 // ...and it belongs there by its ICONS, not by its origin. On an
                 // arc the origin sits in empty space off to one side of the
@@ -1384,6 +1465,20 @@ struct TunerView: View {
                 ratio("submenu at", bind(\.submenuReachRatio), 0.1...4,
                       resolved: pt(metrics.submenuThreshold))
                 caption(submenuBlurb + (layout == .radial ? " · × ring radius" : " · × icon size"))
+                // THE DEAD ZONE FOR CHILDREN, named as such.
+                //
+                // "Is there a deadzone for children?" — yes, and this is it.
+                // `pick at` holds the ring neutral until your hand has committed
+                // to a direction; this holds a SUB-MENU neutral until your hand
+                // has committed to leaving the category. Same idea, one level
+                // down, and it was never labelled that way.
+                caption(childTravel < 1
+                        ? "⚠️ ZERO clear travel — the boundary is sitting on the category's own rim, so leaving the icon at all picks a child. This is the children's dead zone, and right now it is off. Raise `submenu at`."
+                        : "\(pt(childTravel)) of clear travel past the highlighted category's rim before a child takes the pick. THIS is the children's dead zone — `pick at` holds the ring neutral until you commit to a direction, and this holds a sub-menu neutral until you commit to leaving the category. The slider above reads from the CENTRE, so it includes the ring and the icon you are standing on; this is what is left over, and it is the number that decides the feel.")
+                // Grouped to stay under the ViewBuilder's ten direct children —
+                // the same ceiling this branch hit once before. Adding the child
+                // dead-zone caption made it eleven.
+                Group {
                 if previewOn {
                     warn("LIVE only, and provably so: preview places its pointer at 1.08 × this very distance, so moving it moves the pointer too and nothing on screen can change. To SEE it: switch to live, drag out along a category that has children, and watch the label — it flips from the category's name to a child's the moment you cross the dashed circle. Drag back inside and it flips back.", .orange)
                 }
@@ -1391,6 +1486,7 @@ struct TunerView: View {
                     warn("raised to \(pt(metrics.submenuThreshold)) — you asked for a boundary INSIDE the icons, which would let a tangential drift along the ring pick children you never reached for. Raise `submenu at` past \(layout == .radial ? "the rim" : "half an icon").", .orange)
                 }
                 if layout != .radial { childSidePicker }
+                }
             }
             // Grouped for the same reason as above — and because these belong
             // together anyway: everything a sub-menu does.
@@ -1643,20 +1739,49 @@ struct TunerView: View {
     private var spatialControls: some View {
         Label("in the room", systemImage: "visionpro")
             .font(.headline)
+        Toggle("volume window", isOn: $model.volumeOn)
+        caption(model.volumeOn
+                ? "the menu is in a box in your room. Grab the bar underneath it to move it anywhere — that bar is why this one exists: the immersive space below has no chrome at all, so repositioning it means reaching the panel it is floating in front of."
+                : "a bounded box with a system grab bar. Movable by hand, and it cannot swallow the room's gaze, so this window stays reachable. Placement is yours, not the panel's — `distance` and `height` do not apply.")
+
         Toggle("spatial view", isOn: $model.spatialOn)
         caption(model.spatialOn
                 ? "the pane has stopped drawing a menu — one solve at a time, so two of them cannot fight over the metrics readout. Look around you."
                 : "opens an immersive space and draws the SAME menu there, with no window behind it. The component does not change at all: it takes a pointer offset and has no opinion about what is holding it.")
         if model.spatialOn {
             knob("distance", $model.spatialDistance, 0.3...2.5, " m",
-                 decimals: 2, resetTo: 0.7)
+                 decimals: 2, resetTo: 1.0)
             knob("height", $model.spatialHeight, -0.5...2.2, " m",
-                 decimals: 2, resetTo: 1.2)
+                 decimals: 2, resetTo: 1.08)
             knob("scale", $model.spatialScale, 0.2...3, "×",
-                 decimals: 2, resetTo: 1)
+                 decimals: 2, resetTo: 0.5)
             caption("metres, from where you were standing when the space opened. Height goes NEGATIVE on purpose — which way is up in there is a thing to confirm by dragging, not by assuming.")
             Toggle("show reach", isOn: $model.spatialShowReach)
             caption("dashes the edge of the area that catches your pinch, while live. Outside it your gaze goes straight through to the windows behind — worth being able to SEE rather than discover. It tracks the menu, so it grows and shrinks as you tune.")
+
+            if MenuModel.handDemoEnabled {
+            Divider().padding(.vertical, 4)
+            Label("middle-finger pinch", systemImage: "hand.point.up.left")
+                .font(.subheadline.weight(.semibold))
+            Toggle("hand tracking", isOn: $model.handsOn)
+            caption("visionOS reports exactly ONE pinch to apps — index to thumb. A middle-finger pinch is not a gesture the system knows, so this reads the joints directly through ARKit and decides for itself. It asks permission the first time. It needs the immersive space and cannot work in the volume or the window; that is a platform rule, not a gap in this app.")
+            if model.handsOn {
+                Picker("", selection: $model.handScheme) {
+                    ForEach(HandScheme.allCases) { Text($0.label).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .padding(.vertical, 2)
+                caption(model.handScheme == .twoHanded
+                        ? "LEFT middle-finger pinch carries the menu — it rides that hand, so it goes where you put it. The RIGHT hand reaches for what it wants, and a right pinch commits. The pointer is the right hand's offset from the LEFT, not from a fixed point in the room, so it survives you turning around or walking off: both hands move together and their difference only changes when you actually reach."
+                        : "EITHER hand. Pinch and the menu appears where you pinched and STAYS there; that same hand then moves away from it to pick. A menu parented to the hand that is also picking would have nothing to read — the origin would move with the pointer and their difference would always be zero. This one leaves the origin in the room.")
+                Text("thumb ↔ middle  \(String(format: "%.0f mm", model.handGap * 1000))  ·  \(model.handNote)")
+                    .font(.caption).monospacedDigit()
+                    .foregroundStyle(model.handGap > 0 && model.handGap < 0.025 ? .green : .secondary)
+                knob("hand → menu", $model.handPointsPerMetre, 400...3000, " pt/m",
+                     decimals: 0, resetTo: 1360)
+                caption("how far the pointer travels for a given amount of ARM. 1360 pt/m is what visionOS draws an attachment at, so it starts one-to-one — but the number worth having is the one where crossing the ring feels like one gesture, and only your arm can tell you that. Watch the millimetres above while you pinch: that is the raw signal, before any threshold.")
+            }
+            }
         }
     }
     #endif
@@ -1679,6 +1804,10 @@ struct TunerView: View {
             Toggle("rubber band", isOn: bindBool(\.showPointerLeader))
             ratio("pointer size", bind(\.pointerScale), 0.05...2,
                   resolved: pt(metrics.iconSize * config.style.pointerScale))
+            knob("depth", bind(\.depthStep), 0...60, " pt")
+            caption(config.style.depthStep < 0.5
+                    ? "FLAT. Every level sits on one plane — which is a real answer, not a missing feature: a flat ring reads as one object at a glance, and that glance is what a marking menu trades on."
+                    : "how far each LEVEL stands off the plane, where the levels are the ones you are actually in. The ring stays flat. The category you are on comes out by a step and carries its open sub-menu with it — those children exist because of it, so they belong at its height rather than behind it. The child you are on goes out by two. Lifting every icon instead would just be a ring at a different distance: nothing is said when everything says it. \(String(format: "%.0f pt is about %.1f cm", config.style.depthStep, Double(config.style.depthStep) / 13.6)) in a headset, where visionOS renders an attachment at roughly 1360 pt per metre. In the room it is REAL depth and perspective does the work; on a flat screen there is no Z to move along, so it is drawn as a little scale and a growing shadow — understated on purpose, because an overdone fake reads as a bug rather than as height.")
             ratio("pointer weight", bind(\.pointerLineWidth), 0.002...0.12,
                   resolved: pt(max(metrics.iconSize * max(config.style.pointerLineWidth, 0.001), 0.5)))
             caption("how heavy the SPOKE and the RUBBER BAND are drawn, × icon size — so they stay readable when the dial scales instead of thinning away to a hairline. The band is drawn half again as heavy as the spoke, and stays that way: this scales the instrument, it does not redesign it.")
@@ -2032,6 +2161,25 @@ struct TunerView: View {
         layout == .radial
         ? "NOTHING highlights until your hand has travelled this far — measured as a fraction of the trip out to the icons. At 0 the first pixel of movement picks whatever happens to lie along that heading, which is a compass that has already made up its mind. Raise it and an icon only takes hold once you are most of the way to it."
         : "nothing highlights until your hand has travelled this far from where the menu opened, × icon size. At 0 the first pixel of movement picks."
+    }
+
+    /// How far past the highlighted category's own RIM you can travel before a
+    /// child takes the pick.
+    ///
+    /// This is the figure `submenu at` really controls, and it is not the figure
+    /// `submenu at` displays. The slider reads a distance from the CENTRE, which
+    /// includes the whole ring radius and the icon you are standing on — so a
+    /// threshold of 206 pt on a 142 pt ring with 76 pt icons leaves 26 pt of
+    /// actual travel, and 26 is the number that decides whether a child picks
+    /// "as soon as you nudge off the icon".
+    ///
+    /// At the commit floor it is exactly 0: the boundary sits on the rim, and
+    /// leaving the icon at all is enough.
+    private var childTravel: CGFloat {
+        let rim = layout == .radial
+            ? metrics.ringRadius + metrics.iconSize / 2
+            : metrics.iconSize / 2
+        return max(metrics.submenuThreshold - rim, 0)
     }
 
     private func pt(_ v: CGFloat) -> String { String(format: "%.0f pt", v) }
@@ -2622,6 +2770,33 @@ enum GuideHandle: String, CaseIterable, Identifiable {
     }
 }
 
+/// Everything a drag needs, FROZEN at the moment you grabbed.
+///
+/// ⚠️ The frozen metrics are the fix for "changing icon size jerks around", and
+/// the bug is worth understanding because it is a whole class.
+///
+/// `icon size` is the base unit: the ring is SOLVED from it. So growing the icon
+/// grows the ring, which moves the SEAT, which moves the rim you are holding —
+/// away from your finger. Next frame we measured the rim distance against the
+/// seat's NEW position, got a different multiplier, and grew it again by a
+/// different amount. The handle was chasing a target its own movement was
+/// pushing, and that reads exactly as jerk.
+///
+/// Circles never showed it because their loop happens to be stable: drag the
+/// ring to radius R, `ringSlack` is set so the ring is R, next frame the ratio
+/// is 1 and nothing moves. Stability there was luck, not design.
+///
+/// Freezing removes the loop rather than damping it. Every value is computed
+/// from where things were when you grabbed plus where your finger is NOW, so
+/// nothing the drag causes can feed back into what the drag reads.
+struct GuideGrab {
+    let handle: GuideHandle
+    let style: RadialMenuStyle
+    let m: RadialMenuMetrics
+    /// The seat this handle belongs to, as it was. Unused by the circles.
+    let seat: CGPoint
+}
+
 extension TunerView {
 
     // MARK: where the two non-circle handles live
@@ -2681,12 +2856,15 @@ extension TunerView {
     ///
     /// Where the forward formula is one multiply, inverting it is one divide and
     /// no floor can confuse it. Proportional is the fallback, not the default.
-    func applyHandle(_ g: GuideHandle, at p: CGPoint, _ m: RadialMenuMetrics) {
+    func applyGrab(_ grab: GuideGrab, at p: CGPoint) {
+        // EVERY reference below is the frozen one. Reading `metrics` or
+        // `config.style` here would put the feedback loop straight back.
+        let m = grab.m
         let fit = max(m.fit, 0.01)
         let r = hypot(p.x, p.y)
-        var st = config.style
+        var st = grab.style
 
-        switch g {
+        switch grab.handle {
         case .center:
             // originRadius = iconSize x originScale / 2
             st.originScale = clamp(2 * r / max(m.iconSize, 1), 0.05, 6)
@@ -2717,7 +2895,8 @@ extension TunerView {
             // ...and for the fan handle, the ANGLE off its parent is half the
             // spread. Independent of the radius above, which is why one grab can
             // carry both without either fighting the other.
-            if g == .fan, let seat = nearestFanParent(m) {
+            if grab.handle == .fan {
+                let seat = grab.seat
                 let pa = atan2(seat.y, seat.x)
                 var d = atan2(p.y, p.x) - pa
                 while d > .pi { d -= 2 * .pi }
@@ -2731,20 +2910,15 @@ extension TunerView {
         case .icon:
             // The rim is iconSize/2 from its OWN seat, so this one is measured
             // from the seat and not from the origin.
-            // From the seat you grabbed, not the origin: `icon size` is a
-            // diameter and a diameter has no orbit.
-            guard let seat = nearestSeat(to: p, m) else { return }
-            let rim = hypot(p.x - seat.x, p.y - seat.y)
+            // From the seat you grabbed — the one FROZEN at grab time, not
+            // wherever it has since moved to. `icon size` is a diameter and a
+            // diameter has no orbit.
+            let rim = hypot(p.x - grab.seat.x, p.y - grab.seat.y)
             guard m.iconSize > 1 else { return }
             st.iconSize = clamp(st.iconSize * (2 * rim / m.iconSize), 24, 160)
         }
 
         var c = config; c.style = st; config = c
-    }
-
-    private func nearestFanParent(_ m: RadialMenuMetrics) -> CGPoint? {
-        guard layout == .radial, adjustSlot < visibleItems.count else { return nil }
-        return m.seatAt(Double(adjustSlot))
     }
 
     private func clamp(_ v: CGFloat, _ lo: CGFloat, _ hi: CGFloat) -> CGFloat {
@@ -2787,7 +2961,7 @@ extension TunerView {
 
         ZStack {
             ForEach(handles) { g in
-                let live = grabbed == g
+                let live = grabbed?.handle == g
                 if g.isCircle {
                     handleRing(radius: g.radius(m, style), live: live)
                         .position(origin)
@@ -2819,7 +2993,7 @@ extension TunerView {
                     .position(origin)
             }
 
-            if let g = grabbed {
+            if let g = grabbed?.handle {
                 Text(readout(for: g, m))
                     .font(.caption).monospacedDigit()
                     .padding(.horizontal, 7).padding(.vertical, 3)
@@ -2838,11 +3012,17 @@ extension TunerView {
                             let p = CGPoint(x: v.location.x - origin.x,
                                             y: v.location.y - origin.y)
                             if grabbed == nil {
-                                grabbed = pick(p, handles, fan, m, tol)
-                                guard grabbed != nil else { return }
+                                guard let h = pick(p, handles, fan, m, tol) else { return }
+                                // Snapshot HERE and nowhere else.
+                                grabbed = GuideGrab(handle: h,
+                                                    style: config.style,
+                                                    m: m,
+                                                    seat: h == .fan
+                                                        ? m.seatAt(Double(adjustSlot))
+                                                        : (nearestSeat(to: p, m) ?? .zero))
                             }
-                            guard let g = grabbed else { return }
-                            applyHandle(g, at: p, m)
+                            guard let grab = grabbed else { return }
+                            applyGrab(grab, at: p)
                         }
                         .onEnded { _ in grabbed = nil }
                 )
