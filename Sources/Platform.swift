@@ -51,7 +51,17 @@ enum MenuPlatform {
     /// How much of the window the knob panel starts with, and how far the divider
     /// can be dragged. Whether that figure is a WIDTH or a HEIGHT depends on
     /// which edge the panel ended up on — see `SplitStage.stacked`.
-    static var panelSpan: CGFloat { current == .phone ? 300 : 340 }
+    /// The headset gets more, and it is the controls that ask for it rather than
+    /// the screen offering it: every hit target in a knob row is sized for a
+    /// gaze there, and a row of gaze-sized controls leaves a 340 pt panel with
+    /// about 80 pt of actual slider. The slider is the instrument. Give it room.
+    static var panelSpan: CGFloat {
+        switch current {
+        case .phone: 300
+        case .vision: 430
+        case .mac, .pad: 340
+        }
+    }
     static var panelSpanRange: ClosedRange<CGFloat> {
         current == .phone ? 140...560 : 260...600
     }
@@ -72,6 +82,48 @@ enum MenuPlatform {
         switch current {
         case .phone, .pad: true
         case .mac, .vision: false
+        }
+    }
+
+    /// How much clear space the knob panel leaves at its trailing edge for the
+    /// scroll indicator to live in.
+    ///
+    /// A fixed 12 pt was fine on a Mac and wrong in a headset, where the bar is
+    /// drawn fatter and floats further in — it sat directly on top of the
+    /// right-hand VALUES, which are the entire point of those rows. A scroll
+    /// indicator overlapping the number you are trying to read is worse than
+    /// one you cannot see at all.
+    static var scrollGutter: CGFloat {
+        switch current {
+        case .vision: 30
+        case .mac: 14
+        case .pad, .phone: 20
+        }
+    }
+
+    /// The smallest a tappable control may be. Not a style figure — a hit-rate
+    /// one.
+    ///
+    /// A mouse lands on a 20 pt target every time. A gaze does not: it settles
+    /// within a couple of degrees and the eye keeps moving, so a control the
+    /// size of its own text is something you AIM at rather than simply look at.
+    /// The knob-row values were exactly that — a line of type with a tap gesture
+    /// on it — and "still hard to pick the number" is what that feels like from
+    /// inside a headset.
+    static var controlMinHeight: CGFloat {
+        switch current {
+        case .vision: 40
+        case .mac: 22
+        case .pad, .phone: 32
+        }
+    }
+
+    /// The same argument, sideways: how wide an icon-only button has to be.
+    static var controlMinWidth: CGFloat {
+        switch current {
+        case .vision: 30
+        case .mac: 18
+        case .pad, .phone: 26
         }
     }
 

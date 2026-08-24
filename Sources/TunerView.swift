@@ -1084,8 +1084,11 @@ struct TunerView: View {
                             togglesAndPresets
                         }
                         // Clear of the scroll bar: the right-hand VALUES are the
-                        // whole point of these rows, and they were touching it.
-                        .padding(.trailing, 12)
+                        // whole point of these rows, and a scroll indicator
+                        // drawn on top of the number you are reading is worse
+                        // than one you cannot see. How much clearance that takes
+                        // is a per-platform fact — see MenuPlatform.
+                        .padding(.trailing, MenuPlatform.scrollGutter)
                     }
                     // The split gives the panel real bounds, so it simply fills
                     // its column and scrolls when the knobs outrun it. No height
@@ -1225,14 +1228,18 @@ struct TunerView: View {
         }
     }
 
-    private func bindPreviewSlot() -> Binding<Double> {
-        Binding(get: { previewPose.slot }, set: { previewPose.slot = $0 })
+    /// No `fallback`, on purpose: this picks WHICH SEAT the preview highlights,
+    /// and "the factory seat" is not a thing anyone means. The row gets no reset
+    /// arrow, which is the honest answer.
+    private func bindPreviewSlot() -> Knob {
+        Knob(value: Binding(get: { previewPose.slot }, set: { previewPose.slot = $0 }))
     }
 
     /// The two knobs that change WHAT IS ON SCREEN. In responsive mode both of
     /// them re-pack the layout, which is the whole point of round 7.
     @ViewBuilder
     private var countKnobs: some View {
+        caption("every value below can be TYPED — tap the number, enter the one you want. The arrow beside it puts that knob back to what it shipped as, and is dim when it already is.")
         knob("hold", bindDouble(\.hold), 0...1.2, "s")
         knob("icons", bindIcons(), 2...Double(MenuModel.maxIcons), "")
         caption(iconsBlurb)
@@ -1498,9 +1505,12 @@ struct TunerView: View {
                 ? "the pane has stopped drawing a menu — one solve at a time, so two of them cannot fight over the metrics readout. Look around you."
                 : "opens an immersive space and draws the SAME menu there, with no window behind it. The component does not change at all: it takes a pointer offset and has no opinion about what is holding it.")
         if model.spatialOn {
-            knob("distance", $model.spatialDistance, 0.3...2.5, " m", decimals: 2)
-            knob("height", $model.spatialHeight, -0.5...2.2, " m", decimals: 2)
-            knob("scale", $model.spatialScale, 0.2...3, "×", decimals: 2)
+            knob("distance", $model.spatialDistance, 0.3...2.5, " m",
+                 decimals: 2, resetTo: 0.7)
+            knob("height", $model.spatialHeight, -0.5...2.2, " m",
+                 decimals: 2, resetTo: 1.2)
+            knob("scale", $model.spatialScale, 0.2...3, "×",
+                 decimals: 2, resetTo: 1)
             caption("metres, from where you were standing when the space opened. Height goes NEGATIVE on purpose — which way is up in there is a thing to confirm by dragging, not by assuming.")
         }
     }
@@ -1817,31 +1827,39 @@ struct TunerView: View {
     // MARK: row builders
 
     @ViewBuilder
-    private func knob(_ name: String, _ value: Binding<Double>,
+    private func knob(_ name: String, _ k: Knob,
                       _ range: ClosedRange<Double>, _ unit: String,
                       decimals: Int? = nil) -> some View {
         let places = decimals ?? (unit.isEmpty ? 0 : 2)
         return HStack(spacing: 8) {
             Text(name).frame(width: 84, alignment: .leading)
-            Slider(value: value, in: range)
-            Text(String(format: "%.\(places)f\(unit)", value.wrappedValue))
-                .monospacedDigit().frame(width: 54, alignment: .trailing)
+            Slider(value: k.value, in: range)
+            ValueField(text: String(format: "%.\(places)f\(unit)", k.value.wrappedValue),
+                       subtitle: nil, knob: k, range: range, width: 58)
         }
+    }
+
+    /// The few knobs that drive `MenuModel` directly rather than a style key
+    /// path — the spatial placement — where there is no `factory(for:)` to ask
+    /// and the shipped value is a literal. Pass it as `resetTo:`, or leave it
+    /// off and the row simply has no reset arrow.
+    @ViewBuilder
+    private func knob(_ name: String, _ value: Binding<Double>,
+                      _ range: ClosedRange<Double>, _ unit: String,
+                      decimals: Int? = nil, resetTo: Double? = nil) -> some View {
+        knob(name, Knob(value: value, fallback: resetTo), range, unit, decimals: decimals)
     }
 
     /// A ratio slider that also prints what it currently RESOLVES to, so the
     /// abstract multiplier and the concrete distance are never separated.
     @ViewBuilder
-    private func ratio(_ name: String, _ value: Binding<Double>,
+    private func ratio(_ name: String, _ k: Knob,
                        _ range: ClosedRange<Double>, resolved: String) -> some View {
         HStack(spacing: 8) {
             Text(name).frame(width: 84, alignment: .leading)
-            Slider(value: value, in: range)
-            VStack(alignment: .trailing, spacing: 0) {
-                Text(String(format: "%.3f×", value.wrappedValue)).monospacedDigit()
-                Text(resolved).font(.caption2).foregroundStyle(.secondary).monospacedDigit()
-            }
-            .frame(width: 74, alignment: .trailing)
+            Slider(value: k.value, in: range)
+            ValueField(text: String(format: "%.3f×", k.value.wrappedValue),
+                       subtitle: resolved, knob: k, range: range, width: 72)
         }
     }
 
@@ -1858,24 +1876,36 @@ struct TunerView: View {
 
     // MARK: bindings into the CURRENT layout's config
 
-    private func bind(_ kp: WritableKeyPath<RadialMenuStyle, CGFloat>) -> Binding<Double> {
-        Binding(get: { Double(config.style[keyPath: kp]) },
-                set: { var c = config; c.style[keyPath: kp] = CGFloat($0); config = c })
+    // Each of these hands back a `Knob` rather than a bare `Binding<Double>`,
+    // and the reason is the reset arrow. A binding is two closures with no
+    // memory of where it came from, so the row builder receiving one cannot
+    // possibly know what the knob shipped as. Here we still have the KEY PATH,
+    // which is exactly what `factory(for:)` needs — so the factory value gets
+    // attached at the only point in the program that can supply it.
+    //
+    // Nothing at the call sites changed: `knob("icon size", bind(\.iconSize), …)`
+    // reads the same, because `knob` now takes a `Knob`.
+    private func bind(_ kp: WritableKeyPath<RadialMenuStyle, CGFloat>) -> Knob {
+        Knob(value: Binding(get: { Double(config.style[keyPath: kp]) },
+                            set: { var c = config; c.style[keyPath: kp] = CGFloat($0); config = c }),
+             fallback: Double(MenuModel.factory(for: layout).style[keyPath: kp]))
     }
-    private func bindStyleDouble(_ kp: WritableKeyPath<RadialMenuStyle, Double>) -> Binding<Double> {
-        Binding(get: { config.style[keyPath: kp] },
-                set: { var c = config; c.style[keyPath: kp] = $0; config = c })
+    private func bindStyleDouble(_ kp: WritableKeyPath<RadialMenuStyle, Double>) -> Knob {
+        Knob(value: Binding(get: { config.style[keyPath: kp] },
+                            set: { var c = config; c.style[keyPath: kp] = $0; config = c }),
+             fallback: MenuModel.factory(for: layout).style[keyPath: kp])
     }
     private func bindBool(_ kp: WritableKeyPath<RadialMenuStyle, Bool>) -> Binding<Bool> {
         Binding(get: { config.style[keyPath: kp] },
                 set: { var c = config; c.style[keyPath: kp] = $0; config = c })
     }
-    private func bindDouble(_ kp: WritableKeyPath<MenuPreset, Double>) -> Binding<Double> {
-        Binding(get: { config[keyPath: kp] },
-                set: { var c = config; c[keyPath: kp] = $0; config = c })
+    private func bindDouble(_ kp: WritableKeyPath<MenuPreset, Double>) -> Knob {
+        Knob(value: Binding(get: { config[keyPath: kp] },
+                            set: { var c = config; c[keyPath: kp] = $0; config = c }),
+             fallback: MenuModel.factory(for: layout)[keyPath: kp])
     }
-    private func bindIcons() -> Binding<Double> {
-        Binding(get: { Double(config.icons) },
+    private func bindIcons() -> Knob {
+        Knob(value: Binding(get: { Double(config.icons) },
                 set: { v in
                     let want = min(max(Int(v.rounded()), 2), MenuModel.maxIcons)
                     // Dragging UP past the end of the list MAKES categories.
@@ -1894,7 +1924,8 @@ struct TunerView: View {
                     var c = config
                     c.icons = want
                     config = c
-                })
+                }),
+             fallback: Double(MenuModel.factory(for: layout).icons))
     }
 
     /// Grow the list to `n` with placeholder categories, ready to be named.
@@ -1938,13 +1969,14 @@ struct TunerView: View {
     /// then "once the wrap falls below half a step" (344° at twelve icons).
     /// Both let you into the degenerate band, because both were reasoning about
     /// when it gets BAD rather than when it stops meaning anything new.
-    private func bindArcSweep() -> Binding<Double> {
-        Binding(get: { config.style.arcSweepDegrees },
-                set: { v in
-                    var c = config
-                    c.style.arcSweepDegrees = v >= maxOpenSweep ? 360 : v
-                    config = c
-                })
+    private func bindArcSweep() -> Knob {
+        Knob(value: Binding(get: { config.style.arcSweepDegrees },
+                            set: { v in
+                                var c = config
+                                c.style.arcSweepDegrees = v >= maxOpenSweep ? 360 : v
+                                config = c
+                            }),
+             fallback: MenuModel.factory(for: layout).style.arcSweepDegrees)
     }
 
     /// Quadrants in clock terms — 0° is 12 o'clock, sweeping clockwise. -1 = the
@@ -2066,5 +2098,223 @@ struct TunerView: View {
             let enc = JSONEncoder(); enc.outputFormatting = [.prettyPrinted, .sortedKeys]
             if let data = try? enc.encode(file) { try? data.write(to: Self.fileURL) }
         }
+    }
+}
+
+// MARK: - a knob's value, and the two ways to set it that are not dragging
+
+/// A `Binding<Double>` that also remembers what it SHIPPED as.
+///
+/// The reset arrow needs somewhere to go back to, and the row builders had no
+/// way to know it. A binding is a pair of closures with no memory of where it
+/// came from — `knob("icon size", bind(\.iconSize), …)` hands over the ability
+/// to read and write a number and nothing else. The key path, which is what
+/// `MenuModel.factory(for:)` needs, only exists one level up inside `bind`. So
+/// that is where the factory value gets attached, and this is the thing that
+/// carries it down.
+///
+/// `fallback` is optional because not every knob HAS a shipped value that means
+/// anything. `on item` chooses which seat the preview highlights; there is no
+/// factory seat, and pretending otherwise would put a live arrow on a row where
+/// pressing it means nothing.
+struct Knob {
+    let value: Binding<Double>
+    var fallback: Double? = nil
+}
+
+/// The number at the right-hand end of a knob row — which is also an input.
+///
+/// A slider is a coarse instrument, and this panel's whole premise is that you
+/// tune by feel and then keep the number. Feel gets you to 0.449; the value you
+/// actually want is often the one that came off a headset, or a round figure, or
+/// something a colleague read out to you. None of those are reachable by
+/// dragging a 340 pt track, and up to now the only way in was to export, edit
+/// JSON and import it back.
+///
+/// So: tap the number, type it, press return. And an arrow back to whatever it
+/// shipped as, because the fastest way to be brave with a knob is to know the
+/// way back is one tap and not a memory test.
+private struct ValueField: View {
+    let text: String
+    let subtitle: String?
+    let knob: Knob
+    let range: ClosedRange<Double>
+    let width: CGFloat
+
+    /// `nil` means "not editing". One piece of state rather than a Bool and a
+    /// String that can disagree with each other.
+    @State private var draft: String?
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        HStack(spacing: 4) {
+            if let d = draft {
+                editor(d)
+            } else {
+                readout
+            }
+            resetButton
+        }
+    }
+
+    // MARK: reading it
+
+    /// A BUTTON, not a `Text` with a tap gesture on it — and the difference is
+    /// the whole fix for "still hard to pick the number".
+    ///
+    /// Two things were wrong and they compounded. The target was a line of type
+    /// about 17 pt tall, which a mouse hits every time and a gaze does not. And
+    /// nothing about it looked pressable, so there was no way to tell whether
+    /// you had missed or whether it simply did not do anything — the failure and
+    /// the no-op were indistinguishable, which is the worst way for a control to
+    /// fail.
+    ///
+    /// A real button gets the system's own hover treatment: in a headset it
+    /// lights up when your eyes land on it, which turns aiming into looking.
+    /// Boxed and padded so it reads as a field before you touch it, and floored
+    /// at `controlMinHeight` so there is something to land on.
+    private var readout: some View {
+        Button(action: beginEditing) {
+            VStack(alignment: .trailing, spacing: 0) {
+                Text(text)
+                    .monospacedDigit()
+                    // The figures are not all the same length — "75.67pt" is
+                    // wider than "0.45×" — and a fixed column that fits the
+                    // short ones silently truncates the long ones. Shrinking
+                    // beats clipping: a slightly small number is still a number.
+                    .lineLimit(1).minimumScaleFactor(0.7)
+                if let subtitle = subtitle {
+                    Text(subtitle)
+                        .font(.caption2).foregroundStyle(.secondary).monospacedDigit()
+                        .lineLimit(1).minimumScaleFactor(0.7)
+                }
+            }
+            .frame(width: width, alignment: .trailing)
+            .padding(.horizontal, 6)
+            .frame(minHeight: MenuPlatform.controlMinHeight)
+            .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .background(
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(.white.opacity(0.07))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .stroke(.white.opacity(0.12), lineWidth: 1)
+                )
+        )
+        #if !os(macOS)
+        .hoverEffect(.highlight)
+        #endif
+    }
+
+    // MARK: typing it
+
+    @ViewBuilder
+    private func editor(_ d: String) -> some View {
+        HStack(spacing: 2) {
+            TextField("", text: Binding(get: { draft ?? d }, set: { draft = $0 }))
+                .textFieldStyle(.plain)
+                // Trailing, so the caret sits where the number already was and
+                // the row does not jump when you tap it.
+                .multilineTextAlignment(.trailing)
+                .monospacedDigit()
+                .focused($focused)
+                .submitLabel(.done)
+                .onSubmit(commit)
+                .frame(width: width)
+                .frame(minHeight: MenuPlatform.controlMinHeight)
+                // FOCUS HAS TO BE SET AFTER THE FIELD EXISTS.
+                //
+                // `beginEditing` used to do it: set `draft`, then set `focused`,
+                // one line after the other. But this TextField is only built
+                // BECAUSE `draft` became non-nil — so at the moment focus was
+                // assigned there was no field yet to accept it. The binding
+                // landed on nothing and the keyboard never came up. You tapped,
+                // the row changed shape, and nothing else happened, which is
+                // most of what "still hard to pick the number" was.
+                //
+                // The sleep on top of that is not superstition: `.task` fires as
+                // the field is inserted, and focus assigned in that same beat
+                // can still be discarded by the layout pass right behind it. One
+                // turn later it sticks.
+                .task {
+                    try? await Task.sleep(for: .milliseconds(50))
+                    focused = true
+                }
+                // Tapping a DIFFERENT row's value steals focus without ever
+                // sending a submit. Without this the row you left stayed in edit
+                // mode forever, showing a field nobody was typing into.
+                .onChange(of: focused) { _, on in if !on { commit() } }
+                #if canImport(UIKit)
+                // `.numbersAndPunctuation`, and NOT `.decimalPad`, for one
+                // blunt reason: the pads have no return key. Not a hidden one,
+                // not one `.submitLabel` can rename — the layout has no slot for
+                // it, so asking for `.done` on a decimal pad changes nothing at
+                // all. This is the numeric layout that does have one, and it
+                // carries a minus sign too, which the pads also lack and
+                // `arc start` needs at -180.
+                .keyboardType(.numbersAndPunctuation)
+                #endif
+
+            // A second way in, now that the keyboard has a real return key:
+            // useful when the keyboard is somewhere across the room from the
+            // panel, which in a headset it often is.
+            Button(action: commit) {
+                Image(systemName: "return")
+                    .frame(minWidth: MenuPlatform.controlMinWidth,
+                           minHeight: MenuPlatform.controlMinHeight)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
+        }
+    }
+
+    private func beginEditing() {
+        // The NUMBER only. Handing back "75.67pt" would mean deleting the unit
+        // the field itself just printed before you could type anything.
+        //
+        // And that is ALL this does. Focus is the field's own job — see the
+        // `.task` on it.
+        draft = ValueField.digits(text)
+    }
+
+    private func commit() {
+        defer { draft = nil; focused = false }
+        guard let d = draft, let v = Double(ValueField.digits(d)) else { return }
+        // Clamped, not rejected. Typing 500 into a 0…400 knob means "as far as
+        // it goes", and going there beats doing nothing and explaining nothing.
+        knob.value.wrappedValue = min(max(v, range.lowerBound), range.upperBound)
+    }
+
+    /// Whatever a person typed, reduced to something `Double` will take: a unit
+    /// left on the end, a comma for a decimal point, a stray space.
+    private static func digits(_ s: String) -> String {
+        s.replacingOccurrences(of: ",", with: ".")
+            .filter { $0.isNumber || $0 == "." || $0 == "-" }
+    }
+
+    // MARK: putting it back
+
+    private var resetButton: some View {
+        let target = knob.fallback
+        let home = target.map { abs(knob.value.wrappedValue - $0) < 0.0005 } ?? true
+        return Button {
+            guard let t = target else { return }
+            draft = nil
+            focused = false
+            knob.value.wrappedValue = t
+        } label: {
+            Image(systemName: "arrow.uturn.backward")
+                .frame(minWidth: MenuPlatform.controlMinWidth,
+                       minHeight: MenuPlatform.controlMinHeight)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.borderless)
+        .disabled(home)
+        // Dimmed rather than hidden. A control that vanishes when it has nothing
+        // to do takes the row's layout with it, and every knob you touch would
+        // shuffle by 20 pt at the moment you touched it.
+        .opacity(home ? 0.22 : 1)
     }
 }

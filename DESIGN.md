@@ -1333,6 +1333,99 @@ collapsing from a gesture the user never made. Two spans, one per direction.
 A single variable whose meaning depends on a mode is two variables wearing a
 coat.
 
+## The readout was only ever half a control (round 24, 2026-08-24)
+
+Three notes off the headset, and the third one is the interesting one.
+
+**The scroll bar was sitting on the numbers.** There was already a
+`.padding(.trailing, 12)` with a comment saying it existed for exactly this
+reason — written on a Mac, where 12 is right. A headset draws a fatter indicator
+and floats it further in, so the same 12 put it directly on top of the values.
+Now `MenuPlatform.scrollGutter`, alongside `dividerGrab`, which is the same fact
+about the same difference: pointing devices need less clearance than gaze does,
+and every number that describes a target is a per-platform number, not a
+constant that happens to have been measured on a mouse.
+
+**Typing a value.** A slider is a coarse instrument and this panel's premise is
+that you tune by feel and then KEEP the number. Feel gets you to 0.449. The
+value you actually want is often a round figure, or one a colleague read out, or
+the one that came off a headset — and none of those are reachable by dragging a
+340 pt track. Until now the only route in was export, edit JSON, import.
+
+So the readout became an input: tap the number, type it, return. `.decimalPad`
+where the range is positive; `.numbersAndPunctuation` where it can go negative,
+because `.decimalPad` has no minus key and `arc start` reaches -180. Neither
+keyboard has a return key, so there is an explicit one in the row — `.submitLabel`
+cannot add a key to a keyboard with no slot for it.
+
+**And the reset arrow, which needed a type to exist.** `knob("icon size",
+bind(\.iconSize), …)` hands the row builder a `Binding<Double>` — two closures
+with no memory of where they came from. There is no way, from inside `knob`, to
+ask what that knob shipped as. The key path is right there one level up in
+`bind`, which is the only place in the program that can answer it.
+
+Hence `Knob`: a binding plus its factory value, produced by the bind helpers and
+consumed by the row builders. Every call site reads exactly as before, because
+the change is in what the helpers RETURN and what the builders ACCEPT, not in
+what anybody writes between them. `fallback` stays optional and `on item` passes
+none — it chooses which seat the preview highlights, and there is no factory
+seat, so that row gets no arrow rather than a live one that means nothing.
+
+Worth naming the general move, because it is the same one as `childAxis` and
+`Knob` alike: when a widget needs a fact it cannot see, do not thread the fact
+through every call — find the one place that already has it and let the value
+carry it down.
+
+## Two bugs wearing one complaint (round 24b, 2026-08-24)
+
+*"Still hard to pick the number and we REALLY need an enter key on the
+keyboard."*
+
+**The enter key first, because it is not a preference.** `.decimalPad` has no
+return key. Not one that is hidden, not one `.submitLabel` can rename — the
+layout has no slot for it, so `.submitLabel(.done)` on a decimal pad is a call
+that silently does nothing. Last round shipped a decimal pad and an in-row
+return button and called that solved; it was solved for the row and not for the
+keyboard, which is where a hand naturally goes after typing digits.
+`.numbersAndPunctuation` is the numeric layout that HAS one, and it carries a
+minus sign too — which the pads also lack, and `arc start` needs at -180. One
+keyboard type everywhere, and it can express every range in the panel.
+
+**"Hard to pick" was two faults compounding**, which is why it survived a round
+that thought it had addressed it.
+
+The target was a `Text` with `.onTapGesture` — about 17 pt of type. A mouse hits
+that every time. A gaze settles within a couple of degrees and keeps moving, so
+a control the size of its own text is something you aim at rather than look at.
+And nothing about it looked pressable, so a miss and a no-op were
+indistinguishable: the two worst failure modes for a control, in one control.
+Now a real `Button`, boxed, floored at `MenuPlatform.controlMinHeight` (40 in a
+headset), with `.hoverEffect(.highlight)` so it lights up when your eyes arrive.
+
+Underneath that, the part that made it feel dead even when you DID hit it:
+
+    private func beginEditing() {
+        draft = ValueField.digits(text)
+        focused = true            // <- nothing exists yet to receive this
+    }
+
+The TextField is only built BECAUSE `draft` went non-nil. At the moment focus was
+assigned there was no field to accept it, so the binding landed on nothing and
+the keyboard never appeared. You tapped, the row changed shape, and that was all
+that happened. Focus is now set from the field's own `.task`, one turn later,
+with a 50 ms beat on top — because `.task` fires as the field is inserted and the
+layout pass right behind it can still discard the assignment.
+
+Same shape as the `pointerBound` guard and the simulator pre-flight, for the
+third time in three days: **the code was correct and its position was not.**
+Setting focus is right; setting it before the thing being focused exists is not.
+
+Two smaller consequences. Tapping a different row's value steals focus without
+ever sending a submit, so the row you left used to sit in edit mode forever —
+`onChange(of: focused)` commits on blur. And a row of gaze-sized controls leaves
+a 340 pt panel with roughly 80 pt of actual slider, so the headset's default
+panel is 430 now. The slider is the instrument; the rest is chrome around it.
+
 ## Where this is heading
 
 The menu is meant to be summoned **on whatever you're gazing at** — an object, empty space, or
