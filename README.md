@@ -362,6 +362,74 @@ them.
 
 ---
 
+## Sound
+
+A cue fires each time the pick LANDS somewhere new — a category or a child.
+Never on the way back out: leaving an icon is not arriving anywhere. There is a
+**sound** toggle, a **level** slider and six cues in the panel, and picking one
+plays it, because a cue you have to go and trigger to audition is a cue you
+compare from memory.
+
+| cue | |
+|---|---|
+| **bubble** | sampled pops. Most character — and the most of itself you hear on a fast sweep, which is where character turns into noise. |
+| **tick** | 14 ms of filtered noise. The least sound that still registers as an event. |
+| **click** | a rounder tick, low-passed. Softer edge, more body. |
+| **wood** | a damped 880 Hz tap with a noise attack — a physical detent rather than an electronic one. |
+| **glass** | a quiet 2.6 kHz tine. Pitched, so a run of them almost plays a scale. |
+| **thock** | low and short, and the default. Reads as weight rather than brightness, and brightness is what fatigues. |
+| **push** | no attack at all — it eases in. A displacement rather than an impact. |
+| **nudge** | 150 Hz, 75 ms. Nearly under the threshold of noticing; more felt than heard. |
+| **felt** | a fingertip on cloth. The most physical of the soft set. |
+
+The line between **thock** and **push** is the real one: above it a cue is an
+*impact*, below it a *movement*. Every soft cue is the same primitives as the
+percussive ones with a single thing changed — a raised-cosine attack over
+10–25 ms instead of an instant one. An instant attack IS the click; the ear
+hears the edge long before it hears the tone. Ease into it and the identical
+frequency stops being a hit and becomes a gesture. That is the whole trick, and
+it is one function.
+
+Every cue except **bubble** is **synthesised at launch** from a handful of
+numbers — a filter, an envelope and a decay — in about forty lines of
+`MenuAudio.swift`. Three reasons, in order of weight:
+
+1. **Licence.** The bubbles are subscription audio, so they are gitignored and a
+   clone of this repo has none. A synthesised cue ships in the source and works
+   the moment you build.
+2. **There is no portable system tick.** macOS has `/System/Library/Sounds`, iOS
+   has `AudioServices` ids into `/System/Library/Audio/UISounds`, visionOS has
+   its own — different names, different ids, none redistributable, and nothing
+   that resolves on all four. A menu that clicks on a Mac and is silent in a
+   headset is worse than one that never clicks.
+3. It is the argument this whole project makes about layout, applied to sound. A
+   tick has a frequency, a decay and an envelope, and those are dials. Sampling
+   one freezes an answer that ought to stay adjustable.
+
+Audio lives in `MenuAudio.swift`, never in the component. `RadialMenu.swift`
+imports nothing and stays that way: the menu publishes a highlight and the HOST
+decides whether that deserves a noise — the same boundary that let the immersive
+space be added without touching the component.
+
+**To use your own samples**, drop 16-bit WAVs into `Sources/Sounds/` and pick
+**bubble**; every `.wav` found joins the pool. With none there the app runs
+silent rather than failing to build, and the panel says so. What was worth
+knowing from cutting the originals:
+
+- **Short.** 250 ms including the tail. Crossing several icons layers these, and
+  a one-second clip turns that into mud.
+- **Matched in loudness, not in peak.** A sharp click and a round tap can share a
+  peak and be 10 dB apart to an ear. Level on a short-window (~30 ms) RMS, and
+  soft-limit rather than hard-clip what will not fit.
+- **Faded at both ends.** 2 ms in, ~60 ms out. A clip that starts or stops on a
+  non-zero sample clicks, and that click is the loudest thing in it.
+
+If the cue fires more often than you would like, the knob to reach for is
+**pick at** rather than the volume: it is what decides how easily the highlight
+moves at all.
+
+---
+
 ## See it in the room (visionOS)
 
 Turn on **spatial view** and the same menu is drawn in an immersive space with

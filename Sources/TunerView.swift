@@ -230,6 +230,11 @@ struct TunerView: View {
     // PREVIEW ONLY, and that is not a limitation: arranging needs the menu held
     // open and needs every drag for itself, which is exactly the trade preview
     // mode already makes. In live mode the same drags belong to the menu.
+    /// Panel-local, like every other `@State` here: the sound belongs to this
+    /// window, not to the menu. The spatial scene writes the same `highlight`,
+    /// and this view is always alive to hear it, so one player covers both.
+    @State private var audio = MenuAudio()
+
     @State private var arrangeOn = true
     @State private var drag: ArrangeDrag?
     @State private var picked: String?
@@ -271,6 +276,31 @@ struct TunerView: View {
             knobs
         }
         .task { loadItems(); load() }
+        // A POP WHEN THE PICK MOVES — not when the pointer does.
+        //
+        // `highlight` already changes only on a real landing, which is why this
+        // reads off the value rather than off the gesture: no throttle, no
+        // "has it been 80 ms", no second definition of what counts as arriving
+        // somewhere. The component decided that once; this just listens.
+        //
+        // Deliberately silent on the way OUT. Returning to the centre is not an
+        // arrival, and a menu that pops when you leave every icon as well as
+        // when you reach one says the same thing twice as loudly.
+        // Hear it the moment you choose it — a cue you have to go and trigger
+        // to audition is a cue you compare from memory.
+        .onChange(of: model.cue) { _, _ in
+            audio.cue = model.cue
+            if model.sfxOn { audio.audition() }
+        }
+        .onChange(of: model.sfxVolume) { _, v in audio.volume = Float(v) }
+        .task { audio.cue = model.cue; audio.volume = Float(model.sfxVolume) }
+        .onChange(of: model.highlight) { was, now in
+            guard model.sfxOn else { return }
+            let arrived = now.child ?? now.parent
+            let left = was.child ?? was.parent
+            guard let arrived, arrived != left else { return }
+            audio.pop()
+        }
         #if os(macOS)
         // Driven off the VALUE, not the gesture, so every route into and out of
         // "the menu is up" restores the arrow — including ones added later.
@@ -1488,6 +1518,18 @@ struct TunerView: View {
         }
         pointerControls
         Group {
+            Toggle("sound", isOn: $model.sfxOn)
+            if model.sfxOn {
+                cuePicker
+                knob("level", $model.sfxVolume, 0...1, "", decimals: 2, resetTo: 0.6)
+                caption(model.cue.blurb)
+                if audio.missingClips {
+                    warn("no .wav files in the bundle — the sampled option needs them in Sources/Sounds/. They are gitignored, so a fresh clone has none. Every other cue is generated in code and always works.", .orange)
+                }
+                caption("fires when the pick LANDS somewhere new, and never on the way back out — leaving an icon is not arriving anywhere. Each cue has five variants and never repeats one twice running, because a repeat is the one thing an ear notices.")
+            }
+        }
+        Group {
             Toggle("open on highlight", isOn: bindBool(\.submenuOnHighlight))
             caption(config.style.submenuOnHighlight
                     ? "children appear the moment you land on their category, and `submenu at` is only where you start choosing one. Off, you travel out to reveal them first — a second reach for a decision you already made."
@@ -1512,6 +1554,34 @@ struct TunerView: View {
             exportBlock
             buildStamp
         }
+    }
+
+    /// A GRID, not a segmented control.
+    ///
+    /// Nine cues in a segmented control gives each one 35 pt on a phone and an
+    /// unreadable sliver in a headset — and this is a control you operate by
+    /// tapping every option in turn, so the target size IS the feature. Wrapping
+    /// buttons stay legible at any panel width and grow to a real gaze target.
+    private var cuePicker: some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 64), spacing: 6)], spacing: 6) {
+            ForEach(MenuCue.allCases) { c in
+                Button { model.cue = c } label: {
+                    Text(c.label)
+                        .font(.caption)
+                        .lineLimit(1).minimumScaleFactor(0.7)
+                        .frame(maxWidth: .infinity)
+                        .frame(minHeight: MenuPlatform.controlMinHeight * 0.72)
+                        .background(
+                            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                .fill(model.cue == c ? Color.accentColor.opacity(0.8)
+                                                     : Color.white.opacity(0.10))
+                        )
+                        .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.vertical, 2)
     }
 
     /// WHICH BUILD AM I LOOKING AT, and on what.

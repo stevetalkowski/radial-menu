@@ -70,6 +70,38 @@ final class MenuModel {
 
     // MARK: how it is being looked at
 
+    /// Sound on or off.
+    ///
+    /// Kept in UserDefaults rather than in the presets file, because it is a
+    /// property of this MACHINE and not of a menu design. Nobody exporting a
+    /// tuned menu means "and it should be silent on your laptop too" — and a
+    /// colleague importing that JSON would have no idea why their speakers went
+    /// quiet.
+    static let sfxKey = "radialmenu.sfx"
+    var sfxOn: Bool = (UserDefaults.standard.object(forKey: MenuModel.sfxKey) as? Bool) ?? true {
+        didSet { UserDefaults.standard.set(sfxOn, forKey: MenuModel.sfxKey) }
+    }
+
+    /// Which cue, and how loud. Same reasoning as `sfxOn`: a property of this
+    /// machine and this pair of ears, not of a menu design.
+    ///
+    /// `thock` is the default, chosen by ear against the alternatives, and that
+    /// reverses the first version. The bubbles are the better SOUND and the
+    /// worse CUE — full of character, which is exactly what you do not want from
+    /// something that fires every time your hand crosses an icon. They are still
+    /// option one in the picker.
+    ///
+    /// Low and short wins for the same reason: it reads as weight rather than as
+    /// brightness, and brightness is what fatigues over a long session.
+    static let cueKey = "radialmenu.cue"
+    static let sfxVolumeKey = "radialmenu.sfx.volume"
+    var cue: MenuCue = MenuCue(rawValue: UserDefaults.standard.string(forKey: MenuModel.cueKey) ?? "") ?? .thock {
+        didSet { UserDefaults.standard.set(cue.rawValue, forKey: MenuModel.cueKey) }
+    }
+    var sfxVolume: Double = (UserDefaults.standard.object(forKey: MenuModel.sfxVolumeKey) as? Double) ?? 0.6 {
+        didSet { UserDefaults.standard.set(sfxVolume, forKey: MenuModel.sfxVolumeKey) }
+    }
+
     var previewOn = true
     var previewPose = RadialMenuPreview()
 

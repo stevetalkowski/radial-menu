@@ -18,3 +18,15 @@ Local.xcconfig
 # Your signing identity — never commit this
 Config/Local.xcconfig
 Config/local.env
+
+# ── licensed audio ───────────────────────────────────────────────────────────
+#
+# The bubble clips come from an Epidemic Sound subscription. That licence covers
+# USING them in a production; it does not cover redistributing the raw files,
+# which is exactly what a public repo does. So the sounds stay on this machine
+# and `MenuAudio` treats them as optional: with no clips in the bundle the app
+# runs silent rather than failing to build.
+#
+# Drop your own .wav files into Sources/Sounds/ and they are picked up by name.
+Sources/Sounds/
+*.mp3
