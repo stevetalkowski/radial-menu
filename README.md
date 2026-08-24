@@ -349,6 +349,12 @@ The component does not change to do this — it takes a pointer offset and
 publishes a highlight, and has no opinion about what is holding it. Only the
 host differs.
 
+Only the menu's own footprint catches a pinch, not the whole plane — outside it
+your gaze passes through to the windows behind, which is what makes the panel
+still reachable while the space is open. **show reach** dashes that edge so you
+can see where it is instead of finding it by bumping into it. It tracks the
+menu, so it grows and shrinks as you tune.
+
 Input is the ordinary system pinch. Detecting a *different* pinch — middle
 finger to thumb, say — is not a gesture the system delivers to apps at all; it
 needs ARKit hand tracking, which means an immersive space, an entitlement and an

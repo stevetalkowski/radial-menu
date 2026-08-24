@@ -274,6 +274,11 @@ struct TunerView: View {
         #if os(macOS)
         // Driven off the VALUE, not the gesture, so every route into and out of
         // "the menu is up" restores the arrow — including ones added later.
+        // Still here, and still driven off the VALUE rather than the gesture:
+        // the cursor rect only covers the STAGE, and the raw mouse under a 1.35
+        // gain travels further than the drawn dot — often across the divider and
+        // into the panel. This covers the rest of the window; the rect covers
+        // the part you are actually looking at.
         .onChange(of: menuShown && style.showPointer) { _, ownPointer in
             if ownPointer { SystemCursor.hide() } else { SystemCursor.show() }
         }
@@ -455,6 +460,10 @@ struct TunerView: View {
             // returned immediately); now it gets out of the way properly.
             .menuInvocation(
                 enabled: !previewOn && !inRoom,
+                // macOS only. Puts a BLANK cursor under the mouse while the menu
+                // draws its own dot — a fact about the stage that AppKit keeps
+                // re-applying, rather than a suppression it keeps lifting.
+                hidesCursor: menuShown && style.showPointer,
                 onChanged: { start, current in
                     // PREVIEW is for looking; LIVE is for using. Letting a
                     // gesture half-drive a previewed menu meant the pose and the
@@ -1188,9 +1197,10 @@ struct TunerView: View {
                 }
                 .pickerStyle(.segmented)
                 .padding(.top, 2)
+                caption("what the STAGE holds still while you turn a knob. Framing only — it moves nothing in the menu, changes no exported value, and live ignores it entirely, because live already has an origin: the point you clicked.")
                 caption(model.centerOnIcons
-                        ? "ICONS — an arc is pulled back into the middle instead of hanging off a corner. But the box being held still changes SHAPE as `arc sweep` moves the ring radius, so its center holds while the icons themselves travel."
-                        : "ORIGIN — nothing moves. Also what a LIVE gesture does, since there the origin is your pinch, so preview and live agree. On an arc the icons sit off to one side, because on an arc they do.")
+                        ? "ICONS — the drawn icons are kept in the middle of the stage, so an arc sits centred instead of hanging off a corner. Uses the stage better. The cost is that the box being held still changes SHAPE as `arc sweep` moves the ring radius — so its centre holds while the icons themselves visibly travel, which reads as the layout wobbling. It isn't; the box is."
+                        : "ORIGIN — the menu's centre is pinned and NOTHING moves, ever. Also exactly what a live gesture does, since there the origin is your click, so preview and live agree about where things are. The cost is that on a partial arc the icons sit off to one side of the stage — because on an arc they do.")
             }
             caption(previewBlurb)
         } else {
@@ -1304,7 +1314,18 @@ struct TunerView: View {
                 caption(config.style.nudgeSpread < 0.01
                         ? "0 = only the selected icon moves"
                         : "neighbours lean in proportion to how near your hand is — continuous feedback BETWEEN icons")
-                ratio("dead zone", bind(\.deadZoneRatio), 0...2, resolved: pt(metrics.deadZone))
+                // ONE dead-zone knob per layout, not two. Radial measures
+                // against the trip to the icons; the linear layouts have no ring
+                // to measure against and keep the icon-relative one. Showing
+                // both at once is how you get a panel nobody trusts.
+                if layout == .radial {
+                    ratio("pick at", bind(\.deadZoneOfRing), 0...0.9,
+                          resolved: "\(pt(metrics.deadZone)) of \(pt(metrics.ringRadius))")
+                } else {
+                    ratio("dead zone", bind(\.deadZoneRatio), 0...2,
+                          resolved: pt(metrics.deadZone))
+                }
+                caption(deadZoneBlurb)
                 ratio("submenu at", bind(\.submenuReachRatio), 0.1...4,
                       resolved: pt(metrics.submenuThreshold))
                 caption(submenuBlurb + (layout == .radial ? " · × ring radius" : " · × icon size"))
@@ -1512,6 +1533,8 @@ struct TunerView: View {
             knob("scale", $model.spatialScale, 0.2...3, "×",
                  decimals: 2, resetTo: 1)
             caption("metres, from where you were standing when the space opened. Height goes NEGATIVE on purpose — which way is up in there is a thing to confirm by dragging, not by assuming.")
+            Toggle("show reach", isOn: $model.spatialShowReach)
+            caption("dashes the edge of the area that catches your pinch, while live. Outside it your gaze goes straight through to the windows behind — worth being able to SEE rather than discover. It tracks the menu, so it grows and shrinks as you tune.")
         }
     }
     #endif
@@ -1859,7 +1882,7 @@ struct TunerView: View {
             Text(name).frame(width: 84, alignment: .leading)
             Slider(value: k.value, in: range)
             ValueField(text: String(format: "%.3f×", k.value.wrappedValue),
-                       subtitle: resolved, knob: k, range: range, width: 72)
+                       subtitle: resolved, knob: k, range: range, width: 78)
         }
     }
 
@@ -1869,6 +1892,16 @@ struct TunerView: View {
             .font(.caption2).foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
             .padding(.leading, 2).padding(.bottom, 2)
+    }
+
+    /// The knob that was there the whole time, doing nothing, with nothing said
+    /// about it. Steve went looking for a bug in the pointer for two rounds
+    /// because a slider called "dead zone" sitting at 0 does not announce that
+    /// it is the reason a single pixel of movement picks an icon.
+    private var deadZoneBlurb: String {
+        layout == .radial
+        ? "NOTHING highlights until your hand has travelled this far — measured as a fraction of the trip out to the icons. At 0 the first pixel of movement picks whatever happens to lie along that heading, which is a compass that has already made up its mind. Raise it and an icon only takes hold once you are most of the way to it."
+        : "nothing highlights until your hand has travelled this far from where the menu opened, × icon size. At 0 the first pixel of movement picks."
     }
 
     private func pt(_ v: CGFloat) -> String { String(format: "%.0f pt", v) }
@@ -2144,16 +2177,23 @@ private struct ValueField: View {
     /// `nil` means "not editing". One piece of state rather than a Bool and a
     /// String that can disagree with each other.
     @State private var draft: String?
-    @FocusState private var focused: Bool
 
     var body: some View {
         HStack(spacing: 4) {
-            if let d = draft {
-                editor(d)
-            } else {
-                readout
-            }
+            readout
             resetButton
+        }
+        // Editing happens in a popover beside the number rather than in the row
+        // itself, so the row never changes shape and the sliders never shuffle
+        // under you mid-tune.
+        .popover(isPresented: Binding(get: { draft != nil },
+                                      set: { if !$0 { commit() } })) {
+            NumberPad(draft: Binding(get: { draft ?? "" }, set: { draft = $0 }),
+                      allowsNegative: range.lowerBound < 0,
+                      onCommit: commit)
+                // Without this an iPhone turns a popover into a sheet, which is
+                // a whole modal page for typing one number.
+                .presentationCompactAdaptation(.popover)
         }
     }
 
@@ -2190,97 +2230,36 @@ private struct ValueField: View {
                 }
             }
             .frame(width: width, alignment: .trailing)
-            .padding(.horizontal, 6)
+            // Headroom, not a box. The tall frame is INVISIBLE — it exists so
+            // there is something to land on, and it draws nothing. A drawn box
+            // costs the two-line ratio readouts the width they need and puts
+            // permanent chrome on forty-odd rows to solve a problem that only
+            // exists in the half-second you are aiming at one of them.
             .frame(minHeight: MenuPlatform.controlMinHeight)
-            .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .background(
-            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .fill(.white.opacity(0.07))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .stroke(.white.opacity(0.12), lineWidth: 1)
-                )
-        )
         #if !os(macOS)
+        // THIS is what makes it pickable, and it costs nothing when you are not
+        // looking: the system lights the target as your eyes arrive and takes
+        // the highlight away again when they leave. Feedback exactly when it is
+        // useful, and no ink the rest of the time.
         .hoverEffect(.highlight)
         #endif
     }
 
     // MARK: typing it
 
-    @ViewBuilder
-    private func editor(_ d: String) -> some View {
-        HStack(spacing: 2) {
-            TextField("", text: Binding(get: { draft ?? d }, set: { draft = $0 }))
-                .textFieldStyle(.plain)
-                // Trailing, so the caret sits where the number already was and
-                // the row does not jump when you tap it.
-                .multilineTextAlignment(.trailing)
-                .monospacedDigit()
-                .focused($focused)
-                .submitLabel(.done)
-                .onSubmit(commit)
-                .frame(width: width)
-                .frame(minHeight: MenuPlatform.controlMinHeight)
-                // FOCUS HAS TO BE SET AFTER THE FIELD EXISTS.
-                //
-                // `beginEditing` used to do it: set `draft`, then set `focused`,
-                // one line after the other. But this TextField is only built
-                // BECAUSE `draft` became non-nil — so at the moment focus was
-                // assigned there was no field yet to accept it. The binding
-                // landed on nothing and the keyboard never came up. You tapped,
-                // the row changed shape, and nothing else happened, which is
-                // most of what "still hard to pick the number" was.
-                //
-                // The sleep on top of that is not superstition: `.task` fires as
-                // the field is inserted, and focus assigned in that same beat
-                // can still be discarded by the layout pass right behind it. One
-                // turn later it sticks.
-                .task {
-                    try? await Task.sleep(for: .milliseconds(50))
-                    focused = true
-                }
-                // Tapping a DIFFERENT row's value steals focus without ever
-                // sending a submit. Without this the row you left stayed in edit
-                // mode forever, showing a field nobody was typing into.
-                .onChange(of: focused) { _, on in if !on { commit() } }
-                #if canImport(UIKit)
-                // `.numbersAndPunctuation`, and NOT `.decimalPad`, for one
-                // blunt reason: the pads have no return key. Not a hidden one,
-                // not one `.submitLabel` can rename — the layout has no slot for
-                // it, so asking for `.done` on a decimal pad changes nothing at
-                // all. This is the numeric layout that does have one, and it
-                // carries a minus sign too, which the pads also lack and
-                // `arc start` needs at -180.
-                .keyboardType(.numbersAndPunctuation)
-                #endif
-
-            // A second way in, now that the keyboard has a real return key:
-            // useful when the keyboard is somewhere across the room from the
-            // panel, which in a headset it often is.
-            Button(action: commit) {
-                Image(systemName: "return")
-                    .frame(minWidth: MenuPlatform.controlMinWidth,
-                           minHeight: MenuPlatform.controlMinHeight)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.borderless)
-        }
-    }
-
     private func beginEditing() {
         // The NUMBER only. Handing back "75.67pt" would mean deleting the unit
         // the field itself just printed before you could type anything.
         //
-        // And that is ALL this does. Focus is the field's own job — see the
-        // `.task` on it.
+        // Setting it non-nil is what opens the pad — see `body`.
         draft = ValueField.digits(text)
     }
 
     private func commit() {
-        defer { draft = nil; focused = false }
+        defer { draft = nil }
         guard let d = draft, let v = Double(ValueField.digits(d)) else { return }
         // Clamped, not rejected. Typing 500 into a 0…400 knob means "as far as
         // it goes", and going there beats doing nothing and explaining nothing.
@@ -2302,7 +2281,6 @@ private struct ValueField: View {
         return Button {
             guard let t = target else { return }
             draft = nil
-            focused = false
             knob.value.wrappedValue = t
         } label: {
             Image(systemName: "arrow.uturn.backward")
@@ -2316,5 +2294,129 @@ private struct ValueField: View {
         // to do takes the row's layout with it, and every knob you touch would
         // shuffle by 20 pt at the moment you touched it.
         .opacity(home ? 0.22 : 1)
+    }
+}
+
+/// A number pad with a RETURN key, because UIKit does not have one.
+///
+/// This is not a preference. `.numberPad` and `.decimalPad` have no return key
+/// on any Apple platform — not a hidden one, and not one `.submitLabel` can
+/// summon, because that modifier renames an existing key rather than creating a
+/// slot for a new one. The documented workaround is an accessory toolbar above
+/// the keyboard, which is an iPhone idiom; and `.numbersAndPunctuation`, which
+/// does have a return, is the numeric PAGE of a full QWERTY — a whole alphabet
+/// on screen so you can type "0.45".
+///
+/// In a headset it is worse than an inconvenience. The system keyboard arrives
+/// as a slab somewhere in the room, at a distance it picks, while the number you
+/// are editing is on a panel at arm's length in front of you. You end up looking
+/// away from the thing you are tuning in order to tune it.
+///
+/// Fourteen keys, drawn next to the value, identical on every platform. Less
+/// code than either workaround, and no keyboard ever appears.
+private struct NumberPad: View {
+    @Binding var draft: String
+    let allowsNegative: Bool
+    let onCommit: () -> Void
+
+    #if os(macOS)
+    /// A Mac has a real keyboard with a real Return on it. The pad is still
+    /// there to click, but nobody should have to.
+    @FocusState private var typing: Bool
+    #endif
+
+    private var keyHeight: CGFloat { max(MenuPlatform.controlMinHeight, 34) }
+
+    var body: some View {
+        VStack(spacing: 10) {
+            display
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(.white.opacity(0.08))
+                )
+
+            Grid(horizontalSpacing: 6, verticalSpacing: 6) {
+                GridRow {
+                    key("7"); key("8"); key("9")
+                    key(symbol: "delete.left", action: backspace)
+                }
+                GridRow {
+                    key("4"); key("5"); key("6")
+                    key("C", action: { draft = "" })
+                }
+                GridRow {
+                    key("1"); key("2"); key("3")
+                    key("−", action: negate).disabled(!allowsNegative)
+                }
+                GridRow {
+                    key("0").gridCellColumns(2)
+                    key(".")
+                    key(symbol: "return", prominent: true, action: onCommit)
+                }
+            }
+        }
+        .padding(14)
+        .frame(width: 250)
+    }
+
+    @ViewBuilder
+    private var display: some View {
+        #if os(macOS)
+        TextField("", text: $draft)
+            .textFieldStyle(.plain)
+            .multilineTextAlignment(.trailing)
+            .font(.system(.title3, design: .monospaced))
+            .focused($typing)
+            .onSubmit(onCommit)
+            .task { typing = true }
+        #else
+        // A Text, NOT a TextField. A focused text field is exactly what summons
+        // the system keyboard, which is the thing this whole view exists to
+        // avoid — one stray `.focused` here and the slab comes back.
+        Text(draft.isEmpty ? "0" : draft)
+            .font(.system(.title3, design: .monospaced))
+        #endif
+    }
+
+    // MARK: keys
+
+    /// One key. `title` for the digits, `symbol` for the two that are pictures.
+    private func key(_ title: String? = nil, symbol: String? = nil,
+                     prominent: Bool = false,
+                     action: (() -> Void)? = nil) -> some View {
+        Button {
+            if let action { action() } else if let title { append(title) }
+        } label: {
+            Group {
+                if let symbol { Image(systemName: symbol) } else { Text(title ?? "") }
+            }
+            .font(.system(size: 19, design: .rounded))
+            .frame(maxWidth: .infinity)
+            .frame(height: keyHeight)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.bordered)
+        .tint(prominent ? Color.accentColor : nil)
+    }
+
+    private func append(_ s: String) {
+        // One decimal point, and never a leading one that `Double` would choke
+        // on — "." alone is not a number, ".5" is only sometimes.
+        if s == "." {
+            guard !draft.contains(".") else { return }
+            if draft.isEmpty || draft == "-" { draft += "0" }
+        }
+        draft += s
+    }
+
+    private func backspace() { if !draft.isEmpty { draft.removeLast() } }
+
+    /// A sign toggle rather than a minus key: on a pad there is no cursor, so
+    /// "put a minus at the front" is the only thing the key could sensibly mean.
+    private func negate() {
+        if draft.hasPrefix("-") { draft.removeFirst() } else { draft = "-" + draft }
     }
 }

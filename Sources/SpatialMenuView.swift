@@ -96,6 +96,27 @@ struct SpatialMenuView: View {
                     .contentShape(Rectangle())
             }
 
+            // THE SAME EDGE, around the part that is actually live.
+            //
+            // Steve found this boundary the hard way: by noticing he could only
+            // reach the app panels from OUTSIDE it. That is the boundary working
+            // and being invisible about it, which is the same thing as not
+            // working — you learn where it is by bumping into it.
+            //
+            // Deliberately the same dashes as the preview edge below, because it
+            // states the same kind of fact: here is where this plane's authority
+            // ends. Brighter, because in live it is competing with a room rather
+            // than a dark canvas. Never hit-tested — it sits ON the surface it
+            // describes, and a label that swallowed the thing it labels would be
+            // its own small joke.
+            if !model.previewOn && model.spatialShowReach {
+                Rectangle()
+                    .strokeBorder(.white.opacity(0.24),
+                                  style: StrokeStyle(lineWidth: 2, dash: [18, 14]))
+                    .frame(width: interactiveSide, height: interactiveSide)
+                    .allowsHitTesting(false)
+            }
+
             // A hairline of the plane's own bounds while you are POSITIONING it.
             // Not in live: chrome is the one thing this view exists to remove.
             // But "I opened it and saw nothing" and "it is behind me" look

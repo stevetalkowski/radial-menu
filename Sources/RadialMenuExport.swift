@@ -70,6 +70,7 @@ enum RadialMenuExport {
         put("childGapRatio", n(s.childGapRatio))
         put("labelGapRatio", n(s.labelGapRatio))
         put("deadZoneRatio", n(s.deadZoneRatio))
+        put("deadZoneOfRing", n(s.deadZoneOfRing))
         put("submenuReachRatio", n(s.submenuReachRatio))
         put("childIconScale", n(s.childIconScale))
         put("labelFontScale", n(s.labelFontScale))

@@ -1426,6 +1426,136 @@ ever sending a submit, so the row you left used to sit in edit mode forever —
 a 340 pt panel with roughly 80 pt of actual slider, so the headset's default
 panel is 430 now. The slider is the instrument; the rest is chrome around it.
 
+## Drawing the keyboard Apple did not ship (round 24c, 2026-08-24)
+
+*"Why is there no pure number keypad WITH a freaking return or enter key for
+visionOS?!"*
+
+Because there isn't one, anywhere, on any Apple platform. Worth writing down so
+nobody spends another round looking for it:
+
+  * `.numberPad` and `.decimalPad` have no return key. Not hidden — the layouts
+    have no slot for one.
+  * `.submitLabel(.done)` RENAMES an existing return key. On a pad it renames
+    nothing and silently does nothing.
+  * `.numbersAndPunctuation` does have a return, and is the numeric PAGE of a
+    full QWERTY: a whole alphabet on screen to type "0.45".
+  * The documented workaround is an `inputAccessoryView` toolbar above the
+    keyboard — an iPhone idiom.
+
+Two rounds were spent choosing between those. All three are the wrong answer,
+and in a headset the premise is wrong too: the system keyboard arrives as a slab
+somewhere in the room, at a distance it picks, while the number being edited is
+on a panel at arm's length. You look away from the thing you are tuning in order
+to tune it.
+
+So the pad is ours now. Fourteen keys — digits, a decimal point, a sign toggle,
+backspace, clear, and a return — in a popover beside the value, identical on
+every platform, and no system keyboard is ever summoned. It came to about eighty
+lines, which is less than either workaround.
+
+A sign TOGGLE rather than a minus key, incidentally: a pad has no cursor, so
+"put a minus at the front" is the only thing that key could mean.
+
+macOS keeps a real text field inside the popover, focused, with Return wired to
+commit — a Mac has a keyboard and nobody should have to click twelve buttons in
+front of one. Every other platform gets a `Text`, and the comment above it says
+why in as many words: one stray `.focused` on a TextField is precisely what
+summons the slab this view exists to avoid.
+
+**And the box came off.** The same round that made the value a real button also
+gave it a drawn border and a fill. That was two fixes bolted together: the
+target needed to be BIG, which is invisible, and it apparently needed to look
+pressable, which was a guess. The guess cost the two-line ratio readouts the
+width they needed — *"the text is pushed into it"* — and put permanent chrome on
+forty-odd rows to solve something that lasts half a second. `.hoverEffect` was
+already doing the job properly: the system lights the target as your eyes arrive
+and takes it away when they leave. Feedback exactly when it is useful, and no
+ink the rest of the time.
+
+## A boundary you find by bumping into it (round 25, 2026-08-24)
+
+*"when the Spatial View is enabled and i'm in Live mode, i can see the faint
+square around this region — which is a good thing, because I was unable to click
+through to the app panels unless i was outside this area."*
+
+Read that again: he learned where the interactive area ends by noticing where
+things stopped working. The boundary was doing its job perfectly and saying
+nothing about it, which for a boundary is the same as not working.
+
+The rule it enforces is real and was hard-won — round 17's invisible 1400 pt
+plane swallowed every glance meant for the window behind it, including the one
+that would have turned it off. Shrinking the live surface to the menu's own
+footprint fixed that. But "your gaze passes through out here and not in there"
+is a fact about the world the app has made, and the app was keeping it to
+itself.
+
+So it draws its own edge now, in the same dashes as the preview plane, because
+it states the same kind of fact: here is where this plane's authority ends.
+Brighter, since in live it competes with a room rather than a dark canvas. Never
+hit-tested — it sits on the surface it describes.
+
+This reverses an earlier call, and worth being clear about why. The original
+line was *"not in live: chrome is the one thing this view exists to remove"*,
+which is right about decoration and wrong about this. An edge that tells you
+where your input goes is not chrome; it is the same category as the pointer dot
+and the spoke, which Steve had to correct me about once already — *"i WANT them
+as instrumentation."* Twice now the same mistake: filing a thing that tells you
+what the system is doing under "ornament" because it happens to be a line.
+
+## A knob at zero with nothing said about it (round 26, 2026-08-24)
+
+*"When i start Live mode and click the mouse, the radial opens and there is
+nothing selected yet. If i just nudge my mouse a pixel, it will pick whatever was
+in the line of fire out from the center."*
+
+Two rounds were spent before that sentence: one on the Mac cursor being
+"offset", one on `pointer reach`. Neither was it. The offset WAS real and was a
+symptom — the hand travels and the highlight has already committed, so the two
+disagree.
+
+The cause is one line:
+
+    var deadZoneRatio: CGFloat = 0
+
+with the guard falling through to its epsilon:
+
+    guard travel >= max(m.deadZone, 0.75) else { return clearHighlight() }
+
+0.75 pt. The first pixel of movement picks whatever lies along that heading. Not
+a marking menu — a compass that has already made up its mind.
+
+The knob was there the whole time. Steve found it himself the moment it was
+named: *"ah, you're right — it IS the dead zone. it wasn't clear what it did. so
+i was confused."* Which is the actual finding. **A control shipped at the value
+that makes it invisible, with no caption, is not a feature — it is a trap you
+built and then walked into.** Every other slider in that panel has a sentence
+under it explaining what it costs. This one had nothing, and sat at the one
+setting where it does nothing, so there was no way to learn what it was for
+except by dragging it and guessing.
+
+Two fixes, and the second matters more than the first.
+
+**Ring-relative, not icon-relative.** `deadZoneRatio` measured against the ICON
+and the question is about the RING. The ring is SOLVED from icon size and count,
+so "0.8 × the icon" is a different fraction of the trip at four items than at
+twelve — the feel would drift every time the count changed, for a reason nothing
+on screen explains. What a hand knows is "am I most of the way there yet". So
+`deadZoneOfRing`, shipping at 0.6, solved from the pre-`fit` ring so the fraction
+survives a window resize. The old field stays for the linear layouts, which have
+no ring to measure against.
+
+**One knob per layout, and a caption.** Radial shows `pick at`; the linear
+layouts show `dead zone`; neither shows both, because a panel offering two
+sliders for one idea is how you get a panel nobody trusts. The resolved figure
+reads "85 pt of 142 pt" — the distance AND the trip, so the fraction is legible
+without arithmetic.
+
+Filed alongside the `submenuOpen` and `beginEditing` entries, but it is a
+different failure. Those were code in the wrong position. This was code in the
+right position with **no way for the user to find out it existed** — and the two
+rounds of wrong theories were downstream of that, not of the bug.
+
 ## Where this is heading
 
 The menu is meant to be summoned **on whatever you're gazing at** — an object, empty space, or

@@ -253,6 +253,22 @@ struct RadialMenuStyle: Codable, Equatable {
     /// Travel below which nothing highlights, × icon diameter. 0 = react at once.
     var deadZoneRatio: CGFloat = 0
 
+    /// RADIAL: how far out you must travel before anything highlights, as a
+    /// fraction of the way to the icons. 0 falls back to `deadZoneRatio`.
+    ///
+    /// This exists because `deadZoneRatio` measures against the ICON and the
+    /// question is about the RING. Shipping at 0 meant the guard fell through to
+    /// its 0.75 pt epsilon, so the first pixel of travel picked whatever
+    /// happened to lie along that heading — a menu with no neutral zone at all,
+    /// which is not a marking menu, it is a compass that has already decided.
+    ///
+    /// And icon-relative was the wrong denominator for it anyway. The ring is
+    /// SOLVED from icon size and count, so "0.8 × the icon" is a different
+    /// fraction of the trip at four items than at twelve — the feel would drift
+    /// every time the count changed, for a reason nothing on screen explains.
+    /// What a hand actually knows is "am I most of the way there yet".
+    var deadZoneOfRing: CGFloat = 0.6
+
     /// CONTROL–DISPLAY GAIN: virtual pointer distance ÷ real hand distance.
     ///
     /// 1.0 is 1:1 — a 220 pt ring costs 220 pt of hand. At 2.0 the same ring is
@@ -436,6 +452,7 @@ struct RadialMenuStyle: Codable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case layout, iconSize, responsive, fitToContainer, gutterRatio, ringSlack
         case nudgeRatio, childNudgeRatio, childGapRatio, labelGapRatio, deadZoneRatio
+        case deadZoneOfRing
         case childrenFlipped
         case submenuReachRatio, childIconScale, labelFontScale, labelRunwayScale
         case ringRadius, linearSpacing, nudge, deadZone, submenuThreshold
@@ -482,6 +499,7 @@ struct RadialMenuStyle: Codable, Equatable {
         childGapRatio     = num(.childGapRatio, childGapRatio)
         labelGapRatio     = num(.labelGapRatio, labelGapRatio)
         deadZoneRatio     = num(.deadZoneRatio, deadZoneRatio)
+        deadZoneOfRing    = num(.deadZoneOfRing, deadZoneOfRing)
         submenuReachRatio = num(.submenuReachRatio, submenuReachRatio)
         submenuOnHighlight = flag(.submenuOnHighlight, submenuOnHighlight)
         childIconScale    = num(.childIconScale, childIconScale)
@@ -793,6 +811,20 @@ extension RadialMenuStyle {
         var childGapPt   = responsive ? icon * childGapRatio : childRingGap
         var labelGapPt   = responsive ? icon * labelGapRatio : labelGap
         var deadZonePt   = responsive ? icon * deadZoneRatio : deadZone
+
+        // The radial dead zone, measured against the trip rather than the icon.
+        //
+        // Solved from the PRE-`fit` ring on purpose: `fit` scales the ring and
+        // this together a few lines down, so the fraction survives a window
+        // resize untouched. Deriving it after would make the neutral zone a
+        // different share of the dial in a small window than a large one.
+        //
+        // Capped below 1 so there is always somewhere left to stand that counts
+        // as "on an icon". A dead zone that reached the ring would be a menu you
+        // can point at and never pick from.
+        if layout == .radial, responsive, deadZoneOfRing > 0 {
+            deadZonePt = ring * min(deadZoneOfRing, 0.9)
+        }
         var thresholdPt: CGFloat
         if responsive {
             thresholdPt = layout == .radial ? ring * submenuReachRatio

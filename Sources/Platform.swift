@@ -207,17 +207,23 @@ extension View {
     ///   something in there to drag. Off, and the modifier stays attached but
     ///   transparent — no `if` around it, so the view keeps its identity and
     ///   toggling modes cannot restart the stage.
+    /// - Parameter hidesCursor: macOS only, and ignored everywhere else. True
+    ///   while the menu is drawing its own pointer, so the stage can put a blank
+    ///   cursor under the mouse instead of the arrow.
     func menuInvocation(
         enabled: Bool = true,
+        hidesCursor: Bool = false,
         onChanged: @escaping (_ start: CGPoint, _ current: CGPoint) -> Void,
         onEnded: @escaping () -> Void
     ) -> some View {
-        modifier(MenuInvocation(enabled: enabled, onChanged: onChanged, onEnded: onEnded))
+        modifier(MenuInvocation(enabled: enabled, hidesCursor: hidesCursor,
+                                onChanged: onChanged, onEnded: onEnded))
     }
 }
 
 struct MenuInvocation: ViewModifier {
     var enabled = true
+    var hidesCursor = false
     let onChanged: (CGPoint, CGPoint) -> Void
     let onEnded: () -> Void
 
@@ -231,7 +237,8 @@ struct MenuInvocation: ViewModifier {
         // else on the stage to select. Left is simply the button your hand is
         // already on. Right still works, and matches where Maya and Blender put
         // their marking menus.
-        content.overlay(DragCatcher(enabled: enabled, onChanged: onChanged, onEnded: onEnded))
+        content.overlay(DragCatcher(enabled: enabled, hidesCursor: hidesCursor,
+                                    onChanged: onChanged, onEnded: onEnded))
         #else
         // visionOS: the pinch itself. iOS/iPadOS: a finger. Same gesture object,
         // and `minimumDistance: 0` means contact starts it rather than travel.
@@ -264,23 +271,58 @@ struct MenuInvocation: ViewModifier {
 /// arrow is the only pointer there is.
 ///
 /// `NSCursor.hide()` and `unhide()` are a COUNTER, not a toggle, and this
-/// project has already been bitten once by an unbalanced `NSCursor` stack. The
-/// flag makes both calls idempotent, so no amount of re-entry can leave the
-/// cursor hidden with nothing left to unhide it.
+/// project has been bitten by an unbalanced `NSCursor` stack once already.
+///
+/// ⚠️ The first version guarded BOTH calls with a `hidden` flag, which made them
+/// idempotent and also made hiding a ONE-SHOT. That was the bug that brought the
+/// arrow back. AppKit resets its own cursor counter in situations it does not
+/// report — a popover taking key, the app deactivating, anything that calls
+/// `NSCursor.set()` — and after any of those the arrow is on screen while our
+/// flag still says `hidden`, so nothing ever hides it again for the rest of the
+/// session. A boolean recording what we INTENDED is not evidence of what the
+/// window server is currently doing.
+///
+/// So: `wantsHidden` is intent, `depth` is how many unbalanced `hide()` calls we
+/// owe, and `hide()` is safe to call as often as you like. `show()` unwinds
+/// every one of them, so the stack cannot leak either way.
 enum SystemCursor {
-    private static var hidden = false
+    private static var depth = 0
 
+    /// What the MENU wants. Read by the drag catcher, which asserts it through
+    /// AppKit's own cursor-rect machinery rather than through the hide counter.
+    private(set) static var wantsHidden = false
+
+    /// Idempotent in EFFECT but not in action: calling it again re-asserts,
+    /// which is the whole point.
     static func hide() {
-        guard !hidden else { return }
-        hidden = true
+        wantsHidden = true
+        depth += 1
         NSCursor.hide()
     }
 
     static func show() {
-        guard hidden else { return }
-        hidden = false
-        NSCursor.unhide()
+        wantsHidden = false
+        while depth > 0 {
+            depth -= 1
+            NSCursor.unhide()
+        }
     }
+
+    /// A cursor that is genuinely present and simply has nothing to draw.
+    ///
+    /// Belt to `hide()`'s braces, and the more durable of the two: this is not a
+    /// suppression AppKit can quietly lift, it is what the cursor IS over the
+    /// stage. Cursor rects get re-applied on every window activation, popover
+    /// dismissal and `set()` — all the events that were undoing the other
+    /// mechanism now re-establish this one instead.
+    static let blank: NSCursor = {
+        let img = NSImage(size: NSSize(width: 1, height: 1))
+        img.lockFocus()
+        NSColor.clear.setFill()
+        NSRect(x: 0, y: 0, width: 1, height: 1).fill()
+        img.unlockFocus()
+        return NSCursor(image: img, hotSpot: .zero)
+    }()
 }
 
 /// The only AppKit in the project, and it exists for one reason: SwiftUI has no
@@ -295,12 +337,14 @@ enum SystemCursor {
 /// artist's hand reaches for without thinking.
 struct DragCatcher: NSViewRepresentable {
     var enabled = true
+    var hidesCursor = false
     let onChanged: (CGPoint, CGPoint) -> Void
     let onEnded: () -> Void
 
     func makeNSView(context: Context) -> Catcher {
         let v = Catcher()
         v.enabled = enabled
+        v.hidesCursor = hidesCursor
         v.onChanged = onChanged
         v.onEnded = onEnded
         return v
@@ -308,6 +352,7 @@ struct DragCatcher: NSViewRepresentable {
 
     func updateNSView(_ v: Catcher, context: Context) {
         v.enabled = enabled
+        v.hidesCursor = hidesCursor
         v.onChanged = onChanged
         v.onEnded = onEnded
     }
@@ -317,6 +362,29 @@ struct DragCatcher: NSViewRepresentable {
         var onChanged: ((CGPoint, CGPoint) -> Void)?
         var onEnded: (() -> Void)?
         private var start: CGPoint?
+
+        /// Setting this does not draw anything — it asks AppKit to rebuild the
+        /// view's cursor rects, and `resetCursorRects` below decides what goes
+        /// in them.
+        var hidesCursor = false {
+            didSet {
+                guard hidesCursor != oldValue else { return }
+                window?.invalidateCursorRects(for: self)
+            }
+        }
+
+        /// The durable half of "exactly one pointer on screen".
+        ///
+        /// `NSCursor.hide()` is a suppression the system lifts on its own and
+        /// does not report. A cursor RECT is a fact about this view: while the
+        /// mouse is over the stage, the cursor is the blank one, and every
+        /// window activation and popover dismissal re-applies it rather than
+        /// undoing it.
+        override func resetCursorRects() {
+            super.resetCursorRects()
+            guard hidesCursor else { return }
+            addCursorRect(bounds, cursor: SystemCursor.blank)
+        }
 
         /// Match SwiftUI: origin top-left, y increasing downward. Without this
         /// every offset the menu receives is mirrored vertically.
@@ -353,6 +421,11 @@ struct DragCatcher: NSViewRepresentable {
         // Both buttons, one path — the menu has no reason to care which finger
         // you used.
         private func begin(_ e: NSEvent) {
+            // Re-assert on every press rather than trusting a flag set once,
+            // whenever the last drag ended. Between two drags the app can have
+            // deactivated, a popover can have opened and closed, and any of it
+            // can have put the arrow back without telling anyone.
+            if SystemCursor.wantsHidden { SystemCursor.hide() }
             let p = local(e)
             start = p
             onChanged?(p, p)

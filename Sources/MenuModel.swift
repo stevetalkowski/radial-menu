@@ -120,6 +120,15 @@ final class MenuModel {
     // headset from a text editor, which is this app's premise applied to itself.
 
     var spatialOn = false
+    /// Draw the edge of the area that catches a pinch, while LIVE.
+    ///
+    /// On by default, which reverses an earlier call. The original reasoning was
+    /// that chrome is the one thing the immersive view exists to remove — true
+    /// of decoration, and this is not decoration. Outside that square your gaze
+    /// passes straight through to the windows behind, and a boundary you can
+    /// only find by noticing where things stop working is a boundary doing its
+    /// job badly.
+    var spatialShowReach = true
     /// In front of where you were standing when the space opened.
     var spatialDistance: Double = 0.7
     /// Up from the floor. Negative is allowed, because which way is up in an
