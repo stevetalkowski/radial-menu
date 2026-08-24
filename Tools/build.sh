@@ -44,7 +44,25 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # Machine-specific settings — device UDIDs and the like. Gitignored, so the
 # repo carries nobody's hardware ids. See Config/local.env.example.
 # shellcheck disable=SC1091
-[ -f "$ROOT/Config/local.env" ] && . "$ROOT/Config/local.env"
+if [ -f "$ROOT/Config/local.env" ]; then
+  # SAY SO when the file is broken, because its failure mode is silence.
+  #
+  # This file is SOURCED, so a value is shell syntax, not a string.
+  # `NAME=iPhone 17 Pro Max` assigns "iPhone" and tries to RUN `17`;
+  # `NAME=iPad Pro 13-inch (M5)` is an outright syntax error. Both leave the
+  # variable unset, build.sh falls back to its default, and the symptom is a
+  # simulator you did not ask for booting as though your config were ignored.
+  # Which is exactly what happened the first time these two lines were written.
+  bad=$(grep -nE '^[A-Za-z_][A-Za-z0-9_]*=[^"'"'"']*[[:space:](]' \
+        "$ROOT/Config/local.env" 2>/dev/null || true)
+  if [ -n "$bad" ]; then
+    echo "Config/local.env — these values need quoting:"
+    printf '%s\n' "$bad" | sed 's/^/  /'
+    echo '  a value with a space or a bracket must be quoted:  NAME="iPad Pro 13-inch (M5)"'
+    echo
+  fi
+  . "$ROOT/Config/local.env"
+fi
 DEV="${DEVELOPER_DIR:-/Applications/Xcode-beta.app/Contents/Developer}"
 
 mkdir -p "$ROOT/build"
@@ -62,7 +80,7 @@ build_one() {
   # Initialised, not merely declared: macOS still ships bash 3.2, and `set -u`
   # there is unforgiving about a local that was never assigned.
   local target="$1" dest="" products="" udid_var="" udid="" app=""
-  local sim_name="" sim_platform="" sim_udid=""""
+  local sim_name="" sim_platform="" sim_udid="" want_rt=""""
 
   # Everything a target needs, decided in one place. The UDID is read by NAME
   # here rather than through `${!var}` indirection — also a bash 3.2 courtesy.
@@ -70,15 +88,35 @@ build_one() {
     mac)    dest='platform=macOS' ;;
     vision) dest='generic/platform=visionOS'; products='Debug-xros'
             udid_var='RADIALMENU_DEVICE'; udid="${RADIALMENU_DEVICE:-}" ;;
-    phone)  dest='generic/platform=iOS';      products='Debug-iphoneos'
-            udid_var='RADIALMENU_IPHONE'; udid="${RADIALMENU_IPHONE:-}" ;;
-    pad)    dest='generic/platform=iOS';      products='Debug-iphoneos'
-            udid_var='RADIALMENU_IPAD';   udid="${RADIALMENU_IPAD:-}" ;;
+    # BUILD AGAINST THE DEVICE, not against "some iOS device".
+    #
+    # `generic/platform=iOS` builds a binary for the architecture and stops
+    # there. `-allowProvisioningUpdates` can then refresh the profile but has no
+    # idea WHICH device to add to it, because nothing in the build named one —
+    # so a phone that was already in the profile installs, and an iPad that
+    # never was fails at the last step with
+    #
+    #     0xe8008012 — This provisioning profile cannot be installed on this device
+    #
+    # which reads like a signing misconfiguration and is really just "you have
+    # not told Apple this iPad exists". Naming the destination by id lets the
+    # registration happen during the build, where it belongs. Falls back to
+    # generic when there is no udid, so `all` can still compile for a device you
+    # have not plugged in.
+    phone)  udid="${RADIALMENU_IPHONE:-}"; udid_var='RADIALMENU_IPHONE'
+            products='Debug-iphoneos'
+            dest="${udid:+platform=iOS,id=$udid}"; dest="${dest:-generic/platform=iOS}" ;;
+    pad)    udid="${RADIALMENU_IPAD:-}";   udid_var='RADIALMENU_IPAD'
+            products='Debug-iphoneos'
+            dest="${udid:+platform=iOS,id=$udid}"; dest="${dest:-generic/platform=iOS}" ;;
     ios)    sim_name="${RADIALMENU_IOS_SIM:-iPhone 17 Pro}"
+            want_rt="${RADIALMENU_IOS_RUNTIME:-}"
             sim_platform='iOS Simulator'; products='Debug-iphonesimulator' ;;
-    ipad)   sim_name="${RADIALMENU_IPAD_SIM:-iPad Pro 13-inch (M4)}"
+    ipad)   sim_name="${RADIALMENU_IPAD_SIM:-iPad Pro 13-inch (M5)}"
+            want_rt="${RADIALMENU_IOS_RUNTIME:-}"
             sim_platform='iOS Simulator'; products='Debug-iphonesimulator' ;;
     sim)    sim_name="${RADIALMENU_SIM:-Apple Vision Pro}"
+            want_rt="${RADIALMENU_XR_RUNTIME:-}"
             sim_platform='visionOS Simulator'; products='Debug-xrsimulator' ;;
     *)      dest="$target" ;;
   esac
@@ -96,38 +134,90 @@ build_one() {
   # answers with the simulators that DO exist. Building against the udid rather
   # than a string is less ambiguous anyway.
   if [ -n "$sim_name" ]; then
-    sim_udid=$(env DEVELOPER_DIR="$DEV" xcrun simctl list devices available \
-               | grep -F "$sim_name (" | head -1 \
-               | sed -E 's/.*\(([0-9A-Fa-f-]{36})\).*/\1/')
+    # WHICH ONE, when the name exists under six runtimes.
+    #
+    # `head -1` was wrong and quietly so: simctl lists oldest runtime first, so
+    # every simulator build was pinned to the oldest SDK still installed on the
+    # machine — iOS 26.1 on a Mac that also has 27.0 — and nothing said so.
+    #
+    # Prefer one that is already BOOTED: reusing a running simulator is quicker
+    # and avoids leaving four of them powered up. Otherwise take the LAST match,
+    # which is the newest runtime. Either way the choice gets printed, because
+    # "which OS did that just run on" should never be a thing you have to infer.
+    #
+    # NEWEST is a poor default when your actual devices are not. Set
+    # RADIALMENU_IOS_RUNTIME / RADIALMENU_XR_RUNTIME to pin the family you
+    # ship against, and testing stops drifting ahead of your own hardware.
+    local listing="" pool="" row=""
+    listing=$(env DEVELOPER_DIR="$DEV" xcrun simctl list devices available)
+    pool="$listing"
+    if [ -n "$want_rt" ]; then
+      # Keep only the rows under the matching runtime header.
+      pool=$(printf '%s\n' "$listing" | awk -v rt="$want_rt" '
+        /^-- / { inside = (index($0, rt) > 0); next }
+        inside { print }')
+    fi
+    row=$(printf '%s\n' "$pool" | grep -F "$sim_name (" | grep "(Booted)" | head -1)
+    [ -z "$row" ] && row=$(printf '%s\n' "$pool" | grep -F "$sim_name (" | tail -1)
+    sim_udid=$(printf '%s\n' "$row" | sed -E 's/.*\(([0-9A-Fa-f-]{36})\).*/\1/')
 
     if [ -z "$sim_udid" ]; then
       echo "-- $target - $sim_platform"
-      echo "   no available simulator is named \"$sim_name\"."
+      if [ -n "$want_rt" ]; then
+        echo "   no simulator named \"$sim_name\" under a runtime matching \"$want_rt\"."
+      else
+        echo "   no available simulator is named \"$sim_name\"."
+      fi
       echo
       echo "   what this Mac actually has:"
       env DEVELOPER_DIR="$DEV" xcrun simctl list devices available \
         | sed -E 's/ \([0-9A-Fa-f-]{36}\) \(.*\)$//' | sed 's/^/     /'
       echo
       echo "   put the name you want in Config/local.env as RADIALMENU_IOS_SIM,"
-      echo "   RADIALMENU_IPAD_SIM or RADIALMENU_SIM — or install the runtime in"
-      echo "   Xcode -> Settings -> Components."
+      echo "   RADIALMENU_IPAD_SIM or RADIALMENU_SIM — and the runtime, if you"
+      echo "   pin one, as RADIALMENU_IOS_RUNTIME / RADIALMENU_XR_RUNTIME."
+      echo "   Missing runtimes install from Xcode -> Settings -> Components."
       return 1
     fi
+    # The runtime header above the row we picked, so the log names the OS.
+    local sim_runtime=""
+    sim_runtime=$(printf '%s\n' "$listing" \
+                  | awk -v u="$sim_udid" '/^-- /{rt=$0} index($0,u){print rt; exit}' \
+                  | sed 's/^-- //; s/ --$//')
     dest="platform=$sim_platform,id=$sim_udid"
+    sim_name="$sim_name${sim_runtime:+ · $sim_runtime}"
   fi
 
-  echo "── $target · $dest"
+  echo "-- $target - $dest"
+  # `-allowProvisioningUpdates` is what makes the FIRST build to a new device
+  # work. A development profile lists the devices it is valid for, and a phone
+  # you have never built to is not in it yet. Without this flag xcodebuild fails
+  # with a signing error that describes the profile rather than the phone; with
+  # it, Xcode registers the device and refreshes the profile and you never learn
+  # any of that happened. Harmless on every other target.
   env DEVELOPER_DIR="$DEV" xcodebuild \
     -project "$ROOT/RadialMenu.xcodeproj" \
     -scheme RadialMenu \
     -derivedDataPath "$ROOT/build" \
     -destination "$dest" \
+    -allowProvisioningUpdates \
     build > "$LOG" 2>&1
 
   if [ $? -ne 0 ]; then
     echo
     echo "BUILD FAILED ($target) — errors:"
     grep -E "error:" "$LOG" | sed 's/^/  /' | head -40
+    if grep -q "isn't registered in your developer account" "$LOG" 2>/dev/null; then
+      echo "   ^ an ACCOUNT step, not a code one. Apple has to be told this"
+      echo "     device exists before any profile can include it:"
+      echo "       Xcode -> open RadialMenu.xcodeproj, pick the device, Run."
+      echo "       Xcode offers a Register Device button; one click, once ever."
+      echo "     or developer.apple.com -> Certificates, Identifiers & Profiles"
+      echo "       -> Devices -> + -> paste the identifier from the error above."
+      echo "     NOTE the two identifiers are different things: devicectl shows"
+      echo "     a UUID, Apple wants the hardware UDID printed in the error."
+      echo
+    fi
     echo
     echo "full log: $LOG"
     return 1
@@ -205,6 +295,15 @@ build_one() {
       echo
       echo "   INSTALL FAILED ($target). Is the device awake, unlocked and paired?"
       echo "     xcrun devicectl list devices"
+      if grep -q "0xe8008012\|ApplicationVerificationFailed" "$LOG" 2>/dev/null; then
+        echo
+        echo "   0xe8008012 — this is NOT a cable or a lock screen. The device is"
+        echo "   not listed in the development provisioning profile. Building"
+        echo "   against the device by id (which this script now does) normally"
+        echo "   registers it; if it persists, open RadialMenu.xcodeproj once,"
+        echo "   pick this device in the toolbar and run from Xcode. Xcode will"
+        echo "   register it and every later ./Tools/build.sh will work."
+      fi
       tail -12 "$LOG" | sed 's/^/     /'
       return 1
     fi
