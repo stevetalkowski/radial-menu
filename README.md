@@ -7,6 +7,10 @@ The component is one Swift file with no dependencies. The app around it lets you
 load your **own** menu, adjust how it feels with live sliders, and export the
 result as code you can paste into your project.
 
+One target, four platforms, and all four have been run on real hardware rather
+than only in a simulator — which is where two of the more interesting bugs in
+`DESIGN.md` came from.
+
 > Built as a spike for [Quads](https://sketchbot.studio), shared because the
 > hard part — making a radial menu that doesn't feel arbitrary — is the same
 > problem for everyone.
@@ -196,6 +200,20 @@ and `./Tools/build.sh phone` or `pad` builds, installs and leaves it on the home
 screen. On a free account the app stops launching after seven days — rebuild and
 it works again.
 
+**The first build to a device Apple has never seen will fail**, with either
+`0xe8008012` at install time or *"isn't registered in your developer account"* at
+build time. Neither is a code or config problem: Apple has to be told the device
+exists before any profile can include it. Open `RadialMenu.xcodeproj`, pick the
+device in the toolbar, hit Run once — Xcode offers a **Register Device** button.
+After that, `./Tools/build.sh` works from the terminal forever for that device.
+
+Note the two identifiers are different things and it is genuinely confusing:
+`devicectl` reports a UUID, which is what goes in `local.env`; Apple's portal
+wants the hardware UDID, which is the one printed in the error.
+
+Once a device has been paired over USB once, installs work **over Wi-Fi** —
+same network, device awake and unlocked.
+
 `Config/local.env` is gitignored, like `Config/Local.xcconfig`. Between them,
 nothing about your machine — team, bundle id, hardware UDIDs — reaches the repo.
 
@@ -330,8 +348,14 @@ Everything is live, and the panel prints what each ratio resolves to in points.
 | **gutter** | required clear space between icon rims. The rule the ring radius is solved from. |
 | **hand gain** | control–display gain. How far the pointer moves per unit of hand movement. The one that matters most in a headset. |
 | **nudge spread** | how far the highlight's pop-out spreads to neighbours. Above 0 you get continuous feedback *between* icons instead of all-or-nothing. |
+| **pick at** | how far out you travel before ANYTHING highlights, as a fraction of the trip to the icons. At 0 the first pixel of movement picks whatever lies along that heading. Start here if the menu feels twitchy. |
 | **submenu at** | how far you travel past an item before its children appear |
 | **fit to window** | shrink to fit rather than overflow |
+
+Every value can be **typed**, not just dragged: tap the number and a keypad
+opens with a real return key. The arrow beside it puts that knob back to what it
+shipped as, and is dim when it already is. Both matter more than they sound —
+a slider gets you to 0.449 when the value you want is 0.45.
 
 `DESIGN.md` explains the reasoning behind each, and the failures that produced
 them.
@@ -394,6 +418,22 @@ build products, and any menu or presets JSON you pull off a device.
 `save.sh` refuses to commit if either secret file has become tracked. That is
 the one failure this repo cannot take back, and `.gitignore` is a single
 `git add -f` away from not covering it.
+
+The bottom of the knob panel prints **when this build was made and which
+platform it is running on** — `built 24 Aug 23:41 · iPhone`. With four devices
+in the room, a fix that did not install looks exactly like a fix that did not
+work, and those are the worst two things to be unable to tell apart.
+
+`Config/local.env` is **sourced by the shell**, so any value containing a space
+or a bracket must be quoted:
+
+```
+RADIALMENU_IPAD_SIM="iPad Pro 13-inch (M5)"
+```
+
+Unquoted, it silently assigns the first word or fails outright, the variable
+ends up unset, and `build.sh` falls back to a default — which looks like your
+config being ignored rather than broken. `build.sh` now checks and says so.
 
 ---
 
