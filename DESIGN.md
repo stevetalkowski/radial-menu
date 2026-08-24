@@ -1254,6 +1254,85 @@ and as `guidesOn` sweeping the pointer away with the measure lines. A thing that
 is right in every place it is currently called is not the same as a thing that
 is right.
 
+## A check that runs after the thing it was meant to catch (round 23, 2026-08-24)
+
+First real iPad simulator build. It failed like this:
+
+    BUILD FAILED (ipad) — errors:
+      Unable to find a device matching the provided destination specifier:
+      { platform:watchOS, ... name:Steve's Apple Watch, error: ... doesn't match
+        RadialMenu.app's supported platforms }
+      { platform:visionOS Simulator, ... error: ... 26.5 doesn't match 27.0
+        deployment target }
+
+Neither line is about an iPad. The actual fault — this Mac has no simulator
+named `iPad Pro 13-inch (M4)` — appears nowhere in the output. xcodebuild
+answers a name it cannot match by listing every destination it CAN see, which on
+a machine with a watch and a headset attached is a paragraph of true, irrelevant
+sentences.
+
+`build.sh` already had a clear message for exactly this: *"no available simulator
+is named X — here is what you have."* It sat in the post-build block, which is to
+say it could only run once the build had already succeeded. A guard placed after
+the failure it describes.
+
+Moved to a pre-flight: resolve the name to a udid first, report it by name if
+there is no match (with the list of what does exist), and hand xcodebuild
+`id=<udid>` rather than `name=<string>` — unambiguous, and it cannot half-match.
+
+The same shape as `pointerBound` two rounds ago and as the `strings` probe
+before it. A check is only worth what its POSITION is worth. Correct logic
+downstream of the failure it guards against is not a guard, it is a comment.
+
+**Also surfaced, and fixed:** `XROS_DEPLOYMENT_TARGET` was 27.0 against a
+visionOS 26.5 simulator runtime — so `./Tools/build.sh sim` could not work here,
+and nobody off the 27 beta could build this repo at all. On a project whose whole
+purpose is being handed to other visionOS developers, that is not a build setting,
+it is an audience.
+
+Dropped to 26.0. Nothing in the sources justified 27: no `@available`, no
+`#available`, and the spatial view is built entirely from `RealityView`,
+`Attachment` and entity transforms, all of which predate it. The number was
+whatever the project template happened to stamp in — which is how deployment
+targets usually get set, and why they are usually wrong.
+
+## The phone is not a vertical split (round 23b, 2026-08-24)
+
+*"when in landscape mode on iPhone, can we have the layout like it shows on the
+mac? Otherwise, i just can't see pane 1 with the preview or layout"*
+
+`splitsVertically` was `current == .phone`. A device class standing in for a
+measurement, which is fine right up until the measurement changes without the
+device doing so.
+
+Portrait, 393 x 852: a 300 pt panel underneath still leaves 550 for the stage.
+Landscape, 852 x 393: the same rule leaves 90, and the menu is not on screen at
+all. Nothing about "is this a phone" changed between those two, which is the
+tell — the flag was reading the wrong thing the whole time and portrait was
+hiding it.
+
+Now `SplitStage` decides per window: stack the panel only if the platform allows
+it AND the window is taller than it is wide. The phone is still the only one
+allowed to flip — an iPad or a Mac always has the width, and rearranging them on
+a resize would be motion for its own sake.
+
+Extended to the iPad the same day, at Steve's ask, and it reads the same from
+the other end: *"I typically work in landscape mode on iPad, but those who use it
+in portrait should just be able to use it with panel on top like iOS portrait
+default."* Which is the point — once the rule is about the window, the device it
+is running on stops being part of the question. The Mac and the headset stay
+excluded, and not by oversight: both are resized by hand and continuously, and a
+panel that jumped edges as you dragged a corner past square would be the layout
+rearranging itself mid-gesture. A tablet has two orientations and you commit to
+one; a window has a thousand and you pass through them on the way somewhere.
+
+The second bug was underneath it. `span` was ONE number used as a height when
+the panel was below and a width when beside, so dragging the panel tall in
+portrait and rotating produced a panel that wide in landscape — the stage
+collapsing from a gesture the user never made. Two spans, one per direction.
+A single variable whose meaning depends on a mode is two variables wearing a
+coat.
+
 ## Where this is heading
 
 The menu is meant to be summoned **on whatever you're gazing at** — an object, empty space, or

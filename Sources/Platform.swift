@@ -49,16 +49,31 @@ enum MenuPlatform {
     }
 
     /// How much of the window the knob panel starts with, and how far the divider
-    /// can be dragged. On a phone this is a HEIGHT (the split is horizontal);
-    /// everywhere else a width.
+    /// can be dragged. Whether that figure is a WIDTH or a HEIGHT depends on
+    /// which edge the panel ended up on — see `SplitStage.stacked`.
     static var panelSpan: CGFloat { current == .phone ? 300 : 340 }
     static var panelSpanRange: ClosedRange<CGFloat> {
         current == .phone ? 140...560 : 260...600
     }
 
-    /// The phone is the only screen too narrow for a side-by-side split, so its
-    /// divider runs the other way: stage on top, knobs underneath.
-    static var splitsVertically: Bool { current == .phone }
+    /// Who is ALLOWED to stack the panel under the stage instead of beside it.
+    ///
+    /// Not "who does" — `SplitStage` decides that per window, from the window's
+    /// own shape. A phone is not a vertical split; a phone in PORTRAIT is, and
+    /// the same is true of an iPad turned upright.
+    ///
+    /// The Mac and the headset are excluded on purpose rather than by oversight.
+    /// Both are windows you resize by hand, continuously, and a panel that
+    /// jumped from the right edge to the bottom as you dragged a corner past
+    /// square would be the layout rearranging itself mid-gesture. A tablet has
+    /// two orientations and you commit to one; a window has a thousand and you
+    /// pass through them on the way somewhere.
+    static var panelCanStack: Bool {
+        switch current {
+        case .phone, .pad: true
+        case .mac, .vision: false
+        }
+    }
 
     /// Half-width of the divider's invisible grab target. A mouse can hit a
     /// hairline; gaze-and-pinch cannot, and a finger is worse. The divider still
@@ -344,29 +359,51 @@ struct SplitStage<Stage: View, Panel: View>: View {
         self.panel = panel()
     }
 
-    @State private var span: CGFloat = MenuPlatform.panelSpan
+    /// One span per DIRECTION, because they do not measure the same thing: a
+    /// HEIGHT when the panel is underneath, a WIDTH when it is alongside. With a
+    /// single number, dragging the panel tall in portrait and then rotating gave
+    /// you a panel that wide in landscape — the stage vanished on a gesture the
+    /// user never made.
+    @State private var alongsideSpan: CGFloat = MenuPlatform.panelSpan
+    @State private var underneathSpan: CGFloat = MenuPlatform.panelSpan
 
-    private var vertical: Bool { MenuPlatform.splitsVertically }
+    /// Which edge the panel sits on — decided by the shape of the WINDOW, not by
+    /// the device the window happens to be on.
+    ///
+    /// A phone in portrait is 393 x 852, and stacking a 300 pt panel under the
+    /// stage still leaves 550 for the menu. Turn it sideways and the same rule
+    /// leaves a 90 pt strip: the preview is simply not on screen. Landscape
+    /// wants what the Mac has — knobs beside the stage, not beneath it.
+    ///
+    /// The iPad reads the same way from the other end. It is worked in landscape
+    /// most of the time, where a side column is obviously right; stand it up and
+    /// the sensible layout is the phone's, for the same reason it is sensible on
+    /// the phone. One rule covers both, and it is a rule about the window.
+    private func stacked(_ size: CGSize) -> Bool {
+        MenuPlatform.panelCanStack && size.height > size.width
+    }
 
     var body: some View {
         GeometryReader { geo in
+            let vertical = stacked(geo.size)
             let limit = vertical ? geo.size.height : geo.size.width
             let range = MenuPlatform.panelSpanRange
             // Never let the panel take so much that the stage disappears.
             let ceiling = max(min(range.upperBound, limit - 220), range.lowerBound)
+            let span = vertical ? underneathSpan : alongsideSpan
             let resolved = min(max(span, range.lowerBound), ceiling)
 
             Group {
                 if vertical {
                     VStack(spacing: 0) {
                         stage.frame(maxWidth: .infinity, maxHeight: .infinity)
-                        divider(limit: limit)
+                        divider(limit: limit, vertical: true)
                         panel.frame(height: resolved)
                     }
                 } else {
                     HStack(spacing: 0) {
                         stage.frame(maxWidth: .infinity, maxHeight: .infinity)
-                        divider(limit: limit)
+                        divider(limit: limit, vertical: false)
                         panel.frame(width: resolved)
                     }
                 }
@@ -375,7 +412,7 @@ struct SplitStage<Stage: View, Panel: View>: View {
         }
     }
 
-    private func divider(limit: CGFloat) -> some View {
+    private func divider(limit: CGFloat, vertical: Bool) -> some View {
         Rectangle()
             .fill(Color.white.opacity(0.14))
             .frame(width: vertical ? nil : 1, height: vertical ? 1 : nil)
@@ -398,7 +435,8 @@ struct SplitStage<Stage: View, Panel: View>: View {
                         // split shivered. Reading the pointer's absolute position
                         // in a container that never moves has no such loop —
                         // the divider simply goes where the cursor is.
-                        span = limit - (vertical ? v.location.y : v.location.x)
+                        let s = limit - (vertical ? v.location.y : v.location.x)
+                        if vertical { underneathSpan = s } else { alongsideSpan = s }
                     }
                     .onEnded { _ in }
             )

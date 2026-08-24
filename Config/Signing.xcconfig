@@ -6,7 +6,8 @@
 //     DEVELOPMENT_TEAM = ABCDE12345
 //     PRODUCT_BUNDLE_IDENTIFIER = com.yourcompany.RadialMenu
 //
-// Find your Team ID with:  xcrun devicectl list devices
+// Find your Team ID with:  xcrun security find-identity -v -p codesigning
+// (it is the ten characters in parentheses after your name)
 // or in Xcode: Settings → Accounts → your Apple ID → Manage Certificates,
 // or at developer.apple.com → Membership.
 //

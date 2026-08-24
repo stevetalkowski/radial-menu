@@ -34,6 +34,21 @@ struct RadialMenuApp: App {
     var body: some Scene {
         WindowGroup {
             TunerView(model: model)
+                // Dark, everywhere, regardless of what the machine is set to.
+                //
+                // Not a taste call. The menu draws white icons, white labels and
+                // white guide lines on the assumption of something dark behind
+                // them — that is what makes a thin ring legible at arm's length
+                // in a headset. Inherit a light system appearance and the stage
+                // stays dark while every control around it flips, so the panel
+                // ends up dark text on dark chrome. The Mac looked right only
+                // because this Mac happens to be set to dark.
+                //
+                // Scoped to the tuner APP, deliberately. `RadialMenu.swift` sets
+                // no colour scheme of its own, so a colleague dropping the
+                // component into a light-mode app keeps their own appearance —
+                // they just need to put something dark behind it.
+                .preferredColorScheme(.dark)
         }
         .defaultSize(width: 1100, height: 800)
 

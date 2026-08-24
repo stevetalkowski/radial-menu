@@ -95,9 +95,12 @@ is not.
 
 ## Run it
 
-You need a Mac, **Xcode 26 or later** (Xcode 27 beta for the visionOS 27 SDK),
-and any Apple developer account — a free one works, the build just expires after
-seven days.
+You need a Mac, **Xcode 26 or later**, and any Apple developer account — a free
+one works, the build just expires after seven days.
+
+Minimums are **visionOS 26, iOS 18, macOS 15**. Nothing here needs a newer SDK
+than that, and the deployment targets are set low on purpose so you are not
+required to be on a beta to build it.
 
 ```bash
 git clone https://github.com/stevetalkowski/radial-menu.git
@@ -133,10 +136,24 @@ cp Config/local.env.example Config/local.env   # once — put your device UDIDs 
 ./Tools/build.sh vision   # visionOS  — builds AND installs to the headset
 ./Tools/build.sh phone    # iOS       — builds AND installs to your iPhone
 ./Tools/build.sh pad      # iPadOS    — builds AND installs to your iPad
-./Tools/build.sh ios      # iPhone simulator
-./Tools/build.sh ipad     # iPad simulator
-./Tools/build.sh sim      # visionOS simulator
+./Tools/build.sh ios      # iPhone simulator   — boots it and launches
+./Tools/build.sh ipad     # iPad simulator     — boots it and launches
+./Tools/build.sh sim      # visionOS simulator — boots it and launches
 ```
+
+The simulator targets need no UDID, no cable and no device, so they are the
+quickest way to prove the thing compiles and runs for a platform you have not
+tried yet. If the runtime for one is not installed, the script says so by name
+rather than failing somewhere further down; the simulator it picks can be
+overridden per-platform in `local.env`:
+
+```
+RADIALMENU_IOS_SIM=iPhone 17 Pro
+RADIALMENU_IPAD_SIM=iPad Pro 13-inch (M4)
+```
+
+`xcrun simctl list devices available` prints the names that actually exist on
+your machine.
 
 Targets compose, and run in the order you name them:
 
@@ -148,6 +165,36 @@ Targets compose, and run in the order you name them:
 
 `xcrun devicectl list devices` prints the UDIDs. A device with no UDID in
 `local.env` is skipped with a line saying so, rather than failing the run.
+
+### Onto real hardware
+
+Three things have to be true before a phone or an iPad will show up at all, and
+the failure mode for each is the same — the device is simply absent from
+`devicectl list devices`, with nothing saying why:
+
+1. **Developer Mode is on.** Settings → **Privacy & Security → Developer Mode**,
+   then restart the device and unlock it. The toggle does not appear until the
+   device has been plugged into a Mac running Xcode at least once.
+2. **The Mac is trusted.** Plug in, unlock, tap **Trust** on the prompt.
+3. **The device is unlocked** when you build. A locked device pairs but refuses
+   the install.
+
+Then, once per device:
+
+```bash
+xcrun devicectl list devices        # copy the Identifier column
+```
+
+into `Config/local.env`:
+
+```
+RADIALMENU_IPHONE=<identifier>
+RADIALMENU_IPAD=<identifier>
+```
+
+and `./Tools/build.sh phone` or `pad` builds, installs and leaves it on the home
+screen. On a free account the app stops launching after seven days — rebuild and
+it works again.
 
 `Config/local.env` is gitignored, like `Config/Local.xcconfig`. Between them,
 nothing about your machine — team, bundle id, hardware UDIDs — reaches the repo.
@@ -315,8 +362,15 @@ authorization prompt.
 |---|---|---|
 | visionOS | pinch and drag | side column |
 | macOS | drag with either mouse button | side column, resizable divider |
-| iPadOS | touch and drag | side column |
-| iOS | touch and drag | pull-up section |
+| iPadOS | touch and drag | side column in landscape, pull-up section in portrait |
+| iOS | touch and drag | pull-up section in portrait, side column in landscape |
+
+The panel's edge is chosen from the **window's shape**, not the device. A tablet
+or phone held upright puts the knobs underneath; turned sideways it puts them
+beside the stage, which is the Mac layout. The Mac and the headset never flip —
+their windows are resized by hand and continuously, and a panel that jumped from
+the right edge to the bottom as you dragged past square would be the layout
+rearranging itself mid-gesture.
 
 ---
 

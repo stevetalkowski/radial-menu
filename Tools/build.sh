@@ -6,9 +6,9 @@
 #   ./Tools/build.sh vision          visionOS — builds AND installs to the headset
 #   ./Tools/build.sh phone           iOS — builds AND installs to your iPhone
 #   ./Tools/build.sh pad             iPadOS — builds AND installs to your iPad
-#   ./Tools/build.sh ios             iPhone simulator
-#   ./Tools/build.sh ipad            iPad simulator
-#   ./Tools/build.sh sim             visionOS simulator
+#   ./Tools/build.sh ios             iPhone simulator — boots it and launches
+#   ./Tools/build.sh ipad            iPad simulator — boots it and launches
+#   ./Tools/build.sh sim             visionOS simulator — boots it and launches
 #
 # TARGETS COMPOSE. Name as many as you like and they run in order:
 #
@@ -62,6 +62,7 @@ build_one() {
   # Initialised, not merely declared: macOS still ships bash 3.2, and `set -u`
   # there is unforgiving about a local that was never assigned.
   local target="$1" dest="" products="" udid_var="" udid="" app=""
+  local sim_name="" sim_platform="" sim_udid=""""
 
   # Everything a target needs, decided in one place. The UDID is read by NAME
   # here rather than through `${!var}` indirection — also a bash 3.2 courtesy.
@@ -73,11 +74,47 @@ build_one() {
             udid_var='RADIALMENU_IPHONE'; udid="${RADIALMENU_IPHONE:-}" ;;
     pad)    dest='generic/platform=iOS';      products='Debug-iphoneos'
             udid_var='RADIALMENU_IPAD';   udid="${RADIALMENU_IPAD:-}" ;;
-    ios)    dest="platform=iOS Simulator,name=${RADIALMENU_IOS_SIM:-iPhone 17 Pro}" ;;
-    ipad)   dest="platform=iOS Simulator,name=${RADIALMENU_IPAD_SIM:-iPad Pro 13-inch (M4)}" ;;
-    sim)    dest="platform=visionOS Simulator,name=${RADIALMENU_SIM:-Apple Vision Pro}" ;;
+    ios)    sim_name="${RADIALMENU_IOS_SIM:-iPhone 17 Pro}"
+            sim_platform='iOS Simulator'; products='Debug-iphonesimulator' ;;
+    ipad)   sim_name="${RADIALMENU_IPAD_SIM:-iPad Pro 13-inch (M4)}"
+            sim_platform='iOS Simulator'; products='Debug-iphonesimulator' ;;
+    sim)    sim_name="${RADIALMENU_SIM:-Apple Vision Pro}"
+            sim_platform='visionOS Simulator'; products='Debug-xrsimulator' ;;
     *)      dest="$target" ;;
   esac
+
+  # -- resolve a simulator NAME to its udid, BEFORE xcodebuild sees it --------
+  #
+  # Handing xcodebuild `name=<something>` and letting it fail is a bad trade. A
+  # name it cannot match makes it print every destination attached to the Mac —
+  # Apple Watches, headsets, the wrong runtime versions — and the one sentence
+  # you needed, "there is no simulator by that name", is in none of it. The
+  # first time this ran for real it answered a missing iPad with a paragraph
+  # about a watch.
+  #
+  # Resolving here catches it in one grep, names the string that failed, and
+  # answers with the simulators that DO exist. Building against the udid rather
+  # than a string is less ambiguous anyway.
+  if [ -n "$sim_name" ]; then
+    sim_udid=$(env DEVELOPER_DIR="$DEV" xcrun simctl list devices available \
+               | grep -F "$sim_name (" | head -1 \
+               | sed -E 's/.*\(([0-9A-Fa-f-]{36})\).*/\1/')
+
+    if [ -z "$sim_udid" ]; then
+      echo "-- $target - $sim_platform"
+      echo "   no available simulator is named \"$sim_name\"."
+      echo
+      echo "   what this Mac actually has:"
+      env DEVELOPER_DIR="$DEV" xcrun simctl list devices available \
+        | sed -E 's/ \([0-9A-Fa-f-]{36}\) \(.*\)$//' | sed 's/^/     /'
+      echo
+      echo "   put the name you want in Config/local.env as RADIALMENU_IOS_SIM,"
+      echo "   RADIALMENU_IPAD_SIM or RADIALMENU_SIM — or install the runtime in"
+      echo "   Xcode -> Settings -> Components."
+      return 1
+    fi
+    dest="platform=$sim_platform,id=$sim_udid"
+  fi
 
   echo "── $target · $dest"
   env DEVELOPER_DIR="$DEV" xcodebuild \
@@ -96,6 +133,52 @@ build_one() {
     return 1
   fi
   echo "   built"
+
+  # -- simulator: build it, boot it, run it -----------------------------------
+  #
+  # A simulator target that stops at "built" is the one case where success shows
+  # you nothing at all: the .app lands in DerivedData and no window ever opens.
+  # Same loop the device targets already run, with simctl in place of devicectl.
+  if [ -n "$sim_name" ]; then
+    local bundle_id=""
+    app="$ROOT/build/Build/Products/$products/RadialMenu.app"
+
+    if [ ! -d "$app" ]; then
+      echo "   built, but no .app at $app" >&2
+      return 1
+    fi
+
+    # `simctl boot` on an already-booted device is an ERROR, not a no-op.
+    if ! env DEVELOPER_DIR="$DEV" xcrun simctl list devices \
+         | grep -F "$sim_udid" | grep -q "Booted"; then
+      echo "   booting $sim_name ..."
+      env DEVELOPER_DIR="$DEV" xcrun simctl boot "$sim_udid" >> "$LOG" 2>&1
+    fi
+
+    # Bring the window forward, then WAIT for the boot to finish. Installing
+    # into a device still coming up fails with a message that names none of this.
+    open -a Simulator >> "$LOG" 2>&1
+    env DEVELOPER_DIR="$DEV" xcrun simctl bootstatus "$sim_udid" -b >> "$LOG" 2>&1
+
+    # Read the bundle id off the BUILT app rather than out of Local.xcconfig:
+    # one source, and it cannot disagree with what was actually installed.
+    bundle_id=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" \
+                "$app/Info.plist" 2>/dev/null)
+
+    if env DEVELOPER_DIR="$DEV" xcrun simctl install "$sim_udid" "$app" >> "$LOG" 2>&1; then
+      if [ -n "$bundle_id" ] \
+         && env DEVELOPER_DIR="$DEV" xcrun simctl launch "$sim_udid" "$bundle_id" >> "$LOG" 2>&1; then
+        echo "   launched on $sim_name"
+      else
+        echo "   installed on $sim_name — open it from the home screen"
+      fi
+    else
+      echo
+      echo "   INSTALL FAILED ($target) on $sim_name."
+      tail -12 "$LOG" | sed 's/^/     /'
+      return 1
+    fi
+  fi
 
   # ── install, for the targets where a build on its own is useless ───────────
   if [ -n "$udid_var" ]; then
