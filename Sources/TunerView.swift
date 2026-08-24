@@ -252,6 +252,10 @@ struct TunerView: View {
                 stage
                 VStack(alignment: .leading, spacing: 4) {
                     Text("last confirmed: \(lastConfirmed)")
+                    // On the stage rather than in the panel, because the one
+                    // moment you need this is while a drag is in progress — and
+                    // you cannot read the panel and drag at the same time.
+                    if let r = pointerReadout { Text(r).monospacedDigit() }
                     // The center hint is hidden while the menu is up, so while
                     // previewing it moves here — otherwise nothing on screen
                     // would say how to actually invoke the thing.
@@ -267,6 +271,14 @@ struct TunerView: View {
             knobs
         }
         .task { loadItems(); load() }
+        #if os(macOS)
+        // Driven off the VALUE, not the gesture, so every route into and out of
+        // "the menu is up" restores the arrow — including ones added later.
+        .onChange(of: menuShown && style.showPointer) { _, ownPointer in
+            if ownPointer { SystemCursor.hide() } else { SystemCursor.show() }
+        }
+        .onDisappear { SystemCursor.show() }
+        #endif
         #if os(visionOS)
         // Driven from the toggle's VALUE rather than from its action, so the
         // scene follows the state even if something else flips it.
@@ -508,6 +520,23 @@ struct TunerView: View {
     }
 
     private var hint: String { MenuPlatform.hint(for: layout) }
+
+    /// How far your hand has actually gone, against the bound `pointer reach`
+    /// gives it. If the dot has stopped and this keeps climbing, the clamp is
+    /// doing its job; if they climb together, it is not.
+    ///
+    /// The bound shown is the DIAL's. Land on a category with children and the
+    /// real bound opens up to the trigger and then to the children — see
+    /// `pointerBound` — so a number above this one is not always a clamp.
+    private var pointerReadout: String? {
+        guard menuShown, let p = pointer else { return nil }
+        let r = layout == .radial ? hypot(p.x, p.y) : max(abs(p.x), abs(p.y))
+        let bound = layout == .radial
+            ? metrics.pointerReach.width
+            : max(metrics.pointerReach.width, metrics.pointerReach.height)
+        let over = r > bound + 0.5
+        return "hand \(pt(r)) · reach bound \(pt(bound))" + (over ? " · past it" : "")
+    }
 
     // MARK: arrange — the category list, edited where you can see it
     //

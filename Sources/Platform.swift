@@ -183,6 +183,39 @@ struct MenuInvocation: ViewModifier {
 }
 
 #if os(macOS)
+/// Hide the arrow while the menu draws its own pointer.
+///
+/// On a Mac the system cursor is VISIBLE, and `pointerGain` means the drawn dot
+/// sits at `gain ×` the cursor's offset from the menu's center — so at the
+/// shipped 1.35 the two visibly separate, further apart the further you drag.
+/// That is control–display gain working exactly as designed, and it looks like a
+/// bug, because two pointers that disagree is what a bug looks like. In a
+/// headset nobody notices: there is no system cursor to disagree with.
+///
+/// So: exactly ONE pointer on screen. Hide the arrow while the menu is up and
+/// drawing its own; leave it alone when `showPointer` is off, because then the
+/// arrow is the only pointer there is.
+///
+/// `NSCursor.hide()` and `unhide()` are a COUNTER, not a toggle, and this
+/// project has already been bitten once by an unbalanced `NSCursor` stack. The
+/// flag makes both calls idempotent, so no amount of re-entry can leave the
+/// cursor hidden with nothing left to unhide it.
+enum SystemCursor {
+    private static var hidden = false
+
+    static func hide() {
+        guard !hidden else { return }
+        hidden = true
+        NSCursor.hide()
+    }
+
+    static func show() {
+        guard hidden else { return }
+        hidden = false
+        NSCursor.unhide()
+    }
+}
+
 /// The only AppKit in the project, and it exists for one reason: SwiftUI has no
 /// right-button drag gesture, and no way to take one mouse button while leaving
 /// another alone. This reports mouse down / dragged / up in `DragGesture`'s
