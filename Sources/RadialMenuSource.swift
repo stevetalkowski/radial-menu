@@ -4,7 +4,7 @@
 //  A verbatim copy of RadialMenu.swift so the app can emit a self-contained
 //  export at runtime. Regenerate with Tools/embed-source.sh.
 //
-//  Source: Sources/RadialMenu.swift  (1912 lines, EMBED-VERSION 7)
+//  Source: Sources/RadialMenu.swift  (1923 lines, EMBED-VERSION 7)
 //
 
 enum RadialMenuSource {
@@ -1647,28 +1647,39 @@ struct RadialMenu: View {
     /// slides along the menu's own boundary rather than leaving it.
     /// Where "further buys you nothing" actually starts.
     ///
-    /// TWO cases, and it used to be three. The middle one raised the bound to the
-    /// sub-menu trigger whenever a parent was highlighted, on the theory that you
-    /// need to be able to GET to the children — and to avoid a jump when they
-    /// open. Both parts were wrong.
+    /// ⚠️ The guard on the FIRST line is the whole thing, and it took two wrong
+    /// fixes to find. `submenuOpen` is a pure DISTANCE test — "has the hand
+    /// travelled past the trigger" — and it answers yes on a childless category
+    /// exactly as readily as on a parent. So a bound that opened on
+    /// `submenuOpen` alone held the dot from the ring out to the trigger and
+    /// then released it into open space for no reason at all, on every plain
+    /// category in the menu. Which is what "pointer reach does nothing" looked
+    /// like from the outside.
     ///
-    /// The dot does not need to reach the trigger; your HAND does, and the pick
-    /// reads the raw offset. All that rule bought was a `pointer reach` of 0 that
-    /// pinned to the ring on a plain category and to the trigger on a parent —
-    /// so on a twelve-item menu the knob appeared to do nothing wherever it
-    /// mattered. A knob whose floor depends on which icon you happen to be over
-    /// is not a floor.
+    /// Nothing else in this file has that bug, because every other caller of
+    /// `submenuOpen` already sits behind a children check — `showsChildren`
+    /// tests the item first, and the sub-menu guide is only drawn for a parent.
+    /// This was the one place that asked the distance question on its own.
     ///
-    /// And the jump it was avoiding is not avoidable: pin the dot at the ring and
-    /// then follow the hand out to the children, and it has to cross the gap
-    /// between at some point. Better that it crosses at the moment of
-    /// COMMITMENT, where the jump reads as "you are in the sub-menu now", than
-    /// that the bound quietly stops meaning what the slider says.
+    /// With the guard, the rule reads the way it should:
     ///
-    /// At the shipped default of 1 there is no clamp and so no jump at all. The
-    /// jump only exists at settings where hard pinning is what was asked for.
+    ///   • no children under you → the dial, hard, however far you push
+    ///   • a parent, not yet open → at least the trigger, so you can GET to them
+    ///   • children out → everything, they are what you are reaching for
     private func pointerBound(_ m: RadialMenuMetrics) -> CGSize {
-        submenuOpen(m) ? m.reach : m.pointerReach
+        guard highlightedHasChildren else { return m.pointerReach }
+        if submenuOpen(m) { return m.reach }
+        let t = m.submenuThreshold
+        switch style.layout {
+        case .radial:
+            return CGSize(width: max(m.pointerReach.width, t),
+                          height: max(m.pointerReach.height, t))
+        case .vertical:
+            // Across is where children open; along the column nothing changes.
+            return CGSize(width: max(m.pointerReach.width, t), height: m.pointerReach.height)
+        case .horizontal:
+            return CGSize(width: m.pointerReach.width, height: max(m.pointerReach.height, t))
+        }
     }
 
     private func clampedPointer(_ p: CGPoint, _ m: RadialMenuMetrics) -> CGPoint {

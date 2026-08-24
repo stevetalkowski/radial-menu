@@ -1533,7 +1533,7 @@ struct TunerView: View {
                     : config.style.pointerReachRatio < 0.01
                     ? "pinned to the icons. Past them the dot stops dead and further hand travel is silent — cleaner, and it gives up the one cue that says you have gone too far."
                     : "between the icons and the menu's full extent. Display only: the PICK always reads your raw hand.")
-            caption("bounds overshoot into empty space. Cross into a sub-menu and the dot is free to follow you out to the children — at a low setting it JUMPS at that moment, which is the crossing being visible rather than a glitch.")
+            caption("a hard radial stop on any category with no sub-menu — push all you like, the dot will not pass it. Land on one that HAS children and the bound opens to let you reach them.")
             if previewOn {
                 warn("LIVE only. A preview pose puts the pointer exactly ON a seat — there is no overshoot for this to bound, so the dot will not move however you drag it. The resolved figure above does change; switch to live to feel it.", .orange)
             }

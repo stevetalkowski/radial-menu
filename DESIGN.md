@@ -1204,6 +1204,56 @@ round: a limit that says "further buys you nothing" has to know what is in front
 of you — and "in front of you" means what you have COMMITTED to, not what you
 happen to be pointing at.
 
+## A distance test is not a commitment test (round 22b, 2026-08-24)
+
+*"nope — still not right. I should feel a literal radial constraint, where i am
+unable to push the dot past the first category radius. ONLY when i hit a category
+with submenus will it let me reach out to them."*
+
+Third try. The knob still did nothing, at any setting, on most of the menu.
+
+`submenuOpen(m)` reads:
+
+    guard let p = activePointer(m) else { return false }
+    return submenuReach(p) >= m.submenuThreshold
+
+That is a **distance** question — "has the hand travelled past the trigger" — and
+it answers yes over a childless category exactly as readily as over a parent.
+Nothing in it looks at the item. `pointerBound` opened on it as line one:
+
+    if submenuOpen(m) { return m.reach }        // <- fires everywhere
+
+So on every plain category the bound held the dot from the ring out to the
+trigger and then let go, into open space, for nothing. Push far enough — which
+is the only way anyone would ever test a reach slider — and the clamp was gone.
+Hence "reach 0 does exactly what reach 1 does."
+
+Two rounds were spent looking at the wrong line. Round 22 removed the parent
+floor, arguing a floor that changes with whichever icon you are over is not a
+floor. That argument was fine and the conclusion was wrong: the floor was never
+the bug, and Steve's spec asks for it in as many words — *only* a category with
+sub-menus lets you out. The floor came back. The guard went in front of it:
+
+    guard highlightedHasChildren else { return m.pointerReach }
+    if submenuOpen(m) { return m.reach }
+    ...
+
+  * nothing under you → the dial, hard, however far you push
+  * a parent, not yet open → at least the trigger, so you can GET to them
+  * children out → everything, they are what you are reaching for
+
+**The lesson, and it is the third time this project has hit it.** A predicate
+whose name states a conclusion (`submenuOpen`) but whose body tests a proxy
+(distance) is safe only where the caller has already established the rest. Every
+other caller had: `showsChildren` checks the item first, the sub-menu guide is
+only drawn for a parent. This one asked the proxy on its own and inherited a
+meaning the function never had.
+
+Same family as the submenu threshold that was only correct at one ring radius,
+and as `guidesOn` sweeping the pointer away with the measure lines. A thing that
+is right in every place it is currently called is not the same as a thing that
+is right.
+
 ## Where this is heading
 
 The menu is meant to be summoned **on whatever you're gazing at** — an object, empty space, or
