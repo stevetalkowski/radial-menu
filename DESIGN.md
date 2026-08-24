@@ -1556,6 +1556,60 @@ different failure. Those were code in the wrong position. This was code in the
 right position with **no way for the user to find out it existed** — and the two
 rounds of wrong theories were downstream of that, not of the bug.
 
+## Position is state; animation is decoration (round 27, 2026-08-24)
+
+The best bug in the project, because of how cleanly it isolated.
+
+Sub-menu children drew at the dead centre of the menu, on top of the label, on
+Steve's **iPhone**. Not on the iPad. Not on the Mac. Not in the headset. And not
+in the **iPhone 17 Pro Max simulator** — the same model, the same points, the
+same binary. Identical hardware, identical code, different result, which rules
+out every geometry theory at once: `fit`, canvas size, orientation, Display
+Zoom, all dead on arrival.
+
+`RadialMenu.swift` contains no `#if` at all, so the only remaining variable is
+the environment. And the environment difference that matters:
+
+    iconButton(child, size: m.childIconSize, highlighted: highlight.child == child)
+        .transition(.emerging(from: p, to: cp))     // <- and NO .offset
+
+with
+
+    .modifier(active:   Emerge(scale: 0.7, position: parent, opacity: 0),
+              identity: Emerge(scale: 1,   position: child,  opacity: 1))
+
+**The child's position existed only inside a transition.** A transition is not
+guaranteed to be applied — Reduce Motion, or an insertion in a context that is
+not animating, and SwiftUI can drop the modifier entirely. Drop it and the child
+has no offset of any kind, so it renders at its layout position, which in a
+ZStack is the exact centre. On top of the label. Which is the screenshot.
+
+A simulator ships with Reduce Motion off. A phone somebody actually uses often
+has it on.
+
+And the original comment was not wrong, which is what made it survive:
+
+    // NO base .offset here on purpose. `.offset` doesn't move a view's LAYOUT
+    // frame, so a scale applied outside it pivots around the menu's center —
+
+True. Scaling an already-offset view does pivot around the menu's centre, and
+that was a real bug once. But the conclusion — "so the transition owns the
+position" — traded a visual defect for a structural one. **Where a thing IS
+belongs to the view hierarchy. How it got there belongs to the animation.** Put
+position in the animation and you have a layout that only works while something
+is moving.
+
+The fix keeps both properties. The child gets a plain `.offset(cp)` in the body,
+outside `Emerge`, so `scaleEffect` is still applied inside it and still pivots on
+the icon. The transition now carries only `travel` — the delta back to the
+parent — which is `.zero` at identity. A transition that never runs now leaves
+the child exactly where it belongs, unanimated.
+
+The test for this shape, worth applying to the rest of the file: **if every
+animation in the app were switched off, would anything be in the wrong place?**
+If yes, something's position is being stored somewhere that is allowed to
+vanish.
+
 ## Where this is heading
 
 The menu is meant to be summoned **on whatever you're gazing at** — an object, empty space, or

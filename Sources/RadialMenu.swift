@@ -1164,15 +1164,37 @@ struct RadialMenu: View {
                             let cp = childCenter(parent: i, child: ci,
                                                  of: item.children.count,
                                                  item: child, m)
-                            // NO base .offset here on purpose. `.offset` doesn't move a
-                            // view's LAYOUT frame, so a scale applied outside it pivots
-                            // around the menu's center — which is exactly why children
-                            // looked like they grew out of the middle. The transition
-                            // owns both scale and position, in that order, so the pivot
-                            // is the icon itself.
+                            // ⚠️ THE OFFSET IS OUT HERE, AND MUST STAY OUT HERE.
+                            //
+                            // It used to live inside the transition — `active`
+                            // positioned the child on its parent, `identity`
+                            // positioned it at its seat — on the reasoning that
+                            // scale then pivots on the icon rather than the
+                            // menu's center. The reasoning was right; the place
+                            // was not.
+                            //
+                            // A transition is not guaranteed to be applied. Turn
+                            // on Reduce Motion, or insert the view in a context
+                            // that is not animating, and SwiftUI can drop the
+                            // modifier entirely — at which point a child whose
+                            // ONLY position came from `identity` renders at its
+                            // layout position, which in a ZStack is dead center,
+                            // on top of the label. Which is precisely what an
+                            // iPhone with Reduce Motion on was showing while the
+                            // same model in the simulator, with it off, was fine.
+                            //
+                            // Position is state. Animation is decoration. The
+                            // transition now carries only the DELTA back to the
+                            // parent, which is zero at identity — so if it never
+                            // runs, the child is still exactly where it belongs.
+                            //
+                            // The pivot argument survives intact: `.scaleEffect`
+                            // is applied inside `Emerge`, and this `.offset` is
+                            // outside it, so the scale still pivots on the icon.
                             iconButton(child, size: m.childIconSize,
                                        highlighted: highlight.child == child)
                                 .transition(.emerging(from: p, to: cp))
+                                .offset(x: cp.x, y: cp.y)
                         }
                     }
                 }
@@ -1928,28 +1950,36 @@ private struct Triangle: Shape {
     }
 }
 
-/// Scale FIRST (so the pivot is the icon's own center), then position. Doing it
-/// the other way — the built-in `.scale` transition composed onto an already
-/// `.offset` view — pivots around the menu's center, because `.offset` never
-/// moves the layout frame.
+/// Scale first, so the pivot is the icon's own center rather than the menu's.
+///
+/// `travel` is a DELTA and is `.zero` at identity, which is the whole safety
+/// property: a transition that never runs leaves the child exactly where the
+/// view hierarchy already put it. Nothing about where a child LIVES is stored
+/// in here any more — only how it gets there.
 private struct Emerge: ViewModifier {
     var scale: CGFloat
-    var position: CGPoint
+    var travel: CGSize
     var opacity: Double
     func body(content: Content) -> some View {
         content
             .scaleEffect(scale)
-            .offset(x: position.x, y: position.y)
+            .offset(travel)
             .opacity(opacity)
     }
 }
 
 /// A child EMERGES from the SELECTED icon's center: it starts on that icon at
 /// 70% — no need to start tiny — and eases out to its seat at full size.
-/// Absolute positions, because a child carries no base offset of its own.
+///
+/// Expressed as travel BACK to the parent, so identity is `.zero`. The child
+/// already sits at its seat by way of a plain `.offset` in the body; this only
+/// says where it comes from.
 private extension AnyTransition {
     static func emerging(from parent: CGPoint, to child: CGPoint) -> AnyTransition {
-        .modifier(active: Emerge(scale: 0.7, position: parent, opacity: 0),
-                  identity: Emerge(scale: 1, position: child, opacity: 1))
+        .modifier(active: Emerge(scale: 0.7,
+                                 travel: CGSize(width: parent.x - child.x,
+                                                height: parent.y - child.y),
+                                 opacity: 0),
+                  identity: Emerge(scale: 1, travel: .zero, opacity: 1))
     }
 }
