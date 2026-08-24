@@ -1507,8 +1507,32 @@ struct TunerView: View {
         }
         #endif
 
-        Divider().padding(.vertical, 4)
-        exportBlock
+        Group {
+            Divider().padding(.vertical, 4)
+            exportBlock
+            buildStamp
+        }
+    }
+
+    /// WHICH BUILD AM I LOOKING AT, and on what.
+    ///
+    /// With four devices in the room this stops being a nicety. Deploy, pick a
+    /// device up, and there is otherwise no way to tell whether you are seeing
+    /// the change you just made or the one from an hour ago — so a fix that did
+    /// not install looks exactly like a fix that did not work, which is the
+    /// worst pair of things to be unable to tell apart.
+    ///
+    /// It also makes screenshots self-describing: a photo of a headset and a
+    /// photo of a phone now say which build each was, which is the whole
+    /// difference between comparing two devices and guessing about them.
+    private var buildStamp: some View {
+        Text("\(BuildStamp.text) · \(BuildStamp.platformName)")
+            .font(.caption2)
+            .foregroundStyle(.tertiary)
+            .monospacedDigit()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, 6)
+            .textSelection(.enabled)
     }
 
     #if os(visionOS)
@@ -1849,7 +1873,12 @@ struct TunerView: View {
 
     // MARK: row builders
 
-    @ViewBuilder
+    /// No `@ViewBuilder` here, deliberately. The body is a `let` and then ONE
+    /// expression, so the builder has nothing to build — and an explicit
+    /// `return` switches it off anyway, which is what the warning was saying:
+    /// the attribute was decoration claiming to do work. Plain Swift is the
+    /// honest spelling. The `ratio` twin below has no `let`, so it keeps its
+    /// builder and needs no return.
     private func knob(_ name: String, _ k: Knob,
                       _ range: ClosedRange<Double>, _ unit: String,
                       decimals: Int? = nil) -> some View {
@@ -2418,5 +2447,39 @@ private struct NumberPad: View {
     /// "put a minus at the front" is the only thing the key could sensibly mean.
     private func negate() {
         if draft.hasPrefix("-") { draft.removeFirst() } else { draft = "-" + draft }
+    }
+}
+
+/// When this binary was written, read off the binary itself.
+///
+/// Deliberately NOT a constant stamped in by a build script. A generated file
+/// is one more thing that can be stale — forget the build phase on a new target
+/// and it reports the wrong date confidently, which is worse than reporting
+/// nothing. The executable's modification time is written by the linker and
+/// cannot disagree with the executable it describes.
+///
+/// On a device this can read as the INSTALL time rather than the link time,
+/// since the bundle is copied and re-signed on the way over. That is fine, and
+/// arguably the more useful of the two: the question being asked is "is this
+/// device running what I just sent it", and install time answers exactly that.
+enum BuildStamp {
+    static let text: String = {
+        guard let url = Bundle.main.executableURL,
+              let date = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
+                            .contentModificationDate
+        else { return "build unknown" }
+        let f = DateFormatter()
+        f.dateFormat = "d MMM HH:mm"
+        return "built \(f.string(from: date))"
+    }()
+
+    /// So a screenshot says which machine it came from without being asked.
+    static var platformName: String {
+        switch MenuPlatform.current {
+        case .vision: "Vision Pro"
+        case .mac:    "macOS"
+        case .pad:    "iPad"
+        case .phone:  "iPhone"
+        }
     }
 }
