@@ -111,6 +111,7 @@ enum RadialMenuExport {
         put("showOrigin", s.showOrigin ? "true" : "false")
         put("originScale", n(s.originScale))
         put("originLineWidth", n(s.originLineWidth))
+        put("pointerLineWidth", n(s.pointerLineWidth))
         return out
     }
 

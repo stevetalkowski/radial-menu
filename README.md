@@ -338,6 +338,42 @@ order to get out of step with the one you ship.
 
 ---
 
+### …or drag the guides themselves
+
+Turn on **adjust guides** in preview and every adjustable guide is drawn in
+orange, including the ones normally switched off. Drag one and the knob behind it
+follows:
+
+| grab | writes |
+|---|---|
+| the ring | `ring fit` |
+| the centre circle | `center size` |
+| the outer circle | `child gap` |
+| an icon's rim | `icon size` |
+| the outermost child's rim | `child gap` out, `child spread` sideways — one grab, two knobs |
+
+The inverse problem is smaller than it looks, and for a reason worth stealing:
+**a ratio of two things measured the same way carries no units and no scale
+factors.** `wanted ÷ current` has `fit` in both terms, so it cancels — and since
+each drawn radius is proportional to its field in both responsive and absolute
+mode, the same multiplier is correct for a ratio and for a point value alike.
+Where the forward formula is one multiply, though, the inverse is one divide and
+that is better still: `submenuThreshold` is clamped by a floor, and proportional
+maths against a clamped value divides by a number that has stopped telling the
+truth.
+
+`submenu at` is drawn in cyan rather than orange and is deliberately **not**
+draggable here, which is not an omission. The preview places its pointer at
+`1.08 ×` that very distance, so moving the circle moves the pointer with it and
+nothing on screen can change. It is a live-mode control; a handle that cannot
+demonstrate itself teaches you the app is broken.
+
+Arrange and adjust are mutually exclusive — both want every drag on the stage,
+and a mode that guessed which you meant would be wrong often enough to be worse
+than a switch.
+
+---
+
 ## The knobs that matter most
 
 Everything is live, and the panel prints what each ratio resolves to in points.

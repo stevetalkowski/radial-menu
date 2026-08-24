@@ -428,6 +428,19 @@ struct RadialMenuStyle: Codable, Equatable {
     /// ring can still be a hairline.
     var originLineWidth: CGFloat = 0.0174
 
+    /// Line weight for the pointer's SPOKE and RUBBER BAND, × icon size.
+    ///
+    /// A ratio and not a point value, for the same reason every other length
+    /// here is: these are instrumentation that ships, so they have to stay
+    /// readable when the whole dial scales — a 1 pt hairline against a 160 pt
+    /// icon is a different thing from the same hairline against a 24 pt one.
+    /// `fit` comes along for free, since `m.iconSize` has already been through
+    /// it.
+    ///
+    /// The shipped value draws exactly what a hard-coded 1 pt used to, at the
+    /// shipped icon size — a new knob should change nothing until you move it.
+    var pointerLineWidth: CGFloat = 0.0132
+
     /// Triangle size, as a fraction of the icon it sits on.
     var arrowScale: CGFloat = 0.20
     /// How far the triangle stands off the icon's RIM, as a fraction of the icon
@@ -462,7 +475,7 @@ struct RadialMenuStyle: Codable, Equatable {
         case submenuOnHighlight
         case showPointer, pointerScale, showPointerTrail, pointerOpacity
         case nudgeSpread, showPointerLeader, pointerGain, pointerReachRatio
-        case showOrigin, originScale, originLineWidth
+        case showOrigin, originScale, originLineWidth, pointerLineWidth
     }
 
     init(from decoder: Decoder) throws {
@@ -496,6 +509,7 @@ struct RadialMenuStyle: Codable, Equatable {
         showOrigin        = flag(.showOrigin, showOrigin)
         originScale       = num(.originScale, originScale)
         originLineWidth   = num(.originLineWidth, originLineWidth)
+        pointerLineWidth  = num(.pointerLineWidth, pointerLineWidth)
         childGapRatio     = num(.childGapRatio, childGapRatio)
         labelGapRatio     = num(.labelGapRatio, labelGapRatio)
         deadZoneRatio     = num(.deadZoneRatio, deadZoneRatio)
@@ -1743,12 +1757,19 @@ struct RadialMenu: View {
             let atLimit = abs(p.x - raw.x) > 0.5 || abs(p.y - raw.y) > 0.5
             let d = max(m.iconSize * max(style.pointerScale, 0.02), 3)
             let tint = Color.white.opacity(style.pointerOpacity)
+            // One weight drives all three strokes, and their RELATIVE weights
+            // are preserved rather than flattened: the spoke has always been the
+            // lightest of them and the band the one you follow with your eye.
+            // A single knob that changed that ordering would be a knob that
+            // redesigns the instrument rather than scaling it.
+            let w = max(m.iconSize * max(style.pointerLineWidth, 0.001), 0.5)
 
             if style.showPointerTrail {
                 // The spoke. In radial its ANGLE is literally the pick — drawing
                 // it turns the one unguessable quantity into something you read.
                 Segment(from: .zero, to: p)
-                    .stroke(tint.opacity(0.3), style: StrokeStyle(lineWidth: 1, dash: [3, 4]))
+                    .stroke(tint.opacity(0.3),
+                            style: StrokeStyle(lineWidth: w, dash: [w * 3, w * 4]))
 
             }
 
@@ -1757,7 +1778,7 @@ struct RadialMenu: View {
                 // mapping the user was being asked to infer.
                 if let lit = highlight.parent.flatMap({ items.firstIndex(of: $0) }) {
                     Segment(from: p, to: iconCenter(lit, m))
-                        .stroke(tint.opacity(0.45), lineWidth: 1.5)
+                        .stroke(tint.opacity(0.45), lineWidth: w * 1.5)
                 }
             }
 
@@ -1768,7 +1789,7 @@ struct RadialMenu: View {
                 // gone far enough" was previously invisible.
                 .overlay {
                     Circle()
-                        .strokeBorder(tint, lineWidth: 1.5)
+                        .strokeBorder(tint, lineWidth: w * 1.5)
                         .frame(width: d * 2.1, height: d * 2.1)
                         .opacity(atLimit ? 1 : 0)
                 }

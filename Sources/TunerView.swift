@@ -235,6 +235,12 @@ struct TunerView: View {
     /// and this view is always alive to hear it, so one player covers both.
     @State private var audio = MenuAudio()
 
+    /// Drag the guides themselves. Mutually exclusive with arrange, because
+    /// both want every drag on the stage and a mode that guesses which one you
+    /// meant is worse than a switch.
+    @State private var adjustOn = false
+    @State private var grabbed: GuideHandle?
+
     @State private var arrangeOn = true
     @State private var drag: ArrangeDrag?
     @State private var picked: String?
@@ -464,6 +470,10 @@ struct TunerView: View {
                            preview: previewOn ? previewPose : nil,
                            onResolve: { metrics = $0 })
                     .position(origin)
+                }
+
+                if adjustOn && previewOn && !arrangeOn && !inRoom {
+                    adjustLayer(origin: origin, m)
                 }
 
                 if arrangeOn && !inRoom {
@@ -916,9 +926,24 @@ struct TunerView: View {
     private var arrangeControls: some View {
         Toggle("arrange categories", isOn: $arrangeOn)
             .disabled(!previewOn)
+            // One owner for the stage's drags at a time. A mode that guessed
+            // whether you meant a chip or a guide would be wrong often enough to
+            // be worse than a switch.
+            .onChange(of: arrangeOn) { _, on in if on { adjustOn = false } }
         caption(previewOn
                 ? "the tray across the top IS your category list. Drag a chip onto a dashed seat to place it, or drag a seat back into the tray to take it off the ring."
                 : "arrange needs PREVIEW — in live mode every drag belongs to the menu.")
+
+        Toggle("adjust guides", isOn: $adjustOn)
+            .disabled(!previewOn || layout != .radial)
+            .onChange(of: adjustOn) { _, on in if on { arrangeOn = false } }
+        caption(!previewOn
+                ? "adjust needs PREVIEW, for the same reason arrange does."
+                : layout != .radial
+                ? "radial only for now — the linear layouts have no circles to grab."
+                : adjustOn
+                ? "the thin cyan circle is `submenu at` — drawn for reference and NOT draggable here, because preview places its pointer relative to that very circle, so moving it can never change what you see. It is a live-mode control. Everything else is grabbable: every adjustable guide is drawn, including the ones normally switched off, and each one writes exactly one knob: the ring → `ring fit`, the center circle → `center size`, the dashed circle → `submenu at`, the outer circle → `child gap`. Two PUCKS as well — one on a highlighted icon's rim for `icon size`, one on the outermost child that carries two knobs at once: push it out for `child gap`, sweep it sideways for `child spread`. The panel is still the truth; this is another way to reach it."
+                : "drag the guides in the preview instead of hunting for the slider that moves them. The numbers below change as you drag.")
         if arrangeOn && previewOn {
             if let i = pickedIndex {
                 itemEditor(i)
@@ -1359,6 +1384,9 @@ struct TunerView: View {
                 ratio("submenu at", bind(\.submenuReachRatio), 0.1...4,
                       resolved: pt(metrics.submenuThreshold))
                 caption(submenuBlurb + (layout == .radial ? " · × ring radius" : " · × icon size"))
+                if previewOn {
+                    warn("LIVE only, and provably so: preview places its pointer at 1.08 × this very distance, so moving it moves the pointer too and nothing on screen can change. To SEE it: switch to live, drag out along a category that has children, and watch the label — it flips from the category's name to a child's the moment you cross the dashed circle. Drag back inside and it flips back.", .orange)
+                }
                 if metrics.submenuThresholdFloored {
                     warn("raised to \(pt(metrics.submenuThreshold)) — you asked for a boundary INSIDE the icons, which would let a tangential drift along the ring pick children you never reached for. Raise `submenu at` past \(layout == .radial ? "the rim" : "half an icon").", .orange)
                 }
@@ -1649,8 +1677,11 @@ struct TunerView: View {
         if config.style.showPointer {
             Toggle("pointer spoke", isOn: bindBool(\.showPointerTrail))
             Toggle("rubber band", isOn: bindBool(\.showPointerLeader))
-            ratio("pointer size", bind(\.pointerScale), 0.05...0.5,
+            ratio("pointer size", bind(\.pointerScale), 0.05...2,
                   resolved: pt(metrics.iconSize * config.style.pointerScale))
+            ratio("pointer weight", bind(\.pointerLineWidth), 0.002...0.12,
+                  resolved: pt(max(metrics.iconSize * max(config.style.pointerLineWidth, 0.001), 0.5)))
+            caption("how heavy the SPOKE and the RUBBER BAND are drawn, × icon size — so they stay readable when the dial scales instead of thinning away to a hairline. The band is drawn half again as heavy as the spoke, and stays that way: this scales the instrument, it does not redesign it.")
             knob("pointer fade", bindStyleDouble(\.pointerOpacity), 0.1...1, "")
             ratio("pointer reach", bind(\.pointerReachRatio), 0...1,
                   resolved: pt(layout == .radial ? metrics.pointerReach.width
@@ -1880,8 +1911,8 @@ struct TunerView: View {
         // What this distance MEANS changed with `open on highlight`: it is the
         // commit boundary now, not the reveal.
         let what = config.style.submenuOnHighlight
-            ? "before you are choosing a child rather than the category"
-            : "before children appear"
+            ? "before the pick moves off the CATEGORY and onto one of its CHILDREN. With `open on highlight` on, the children are already visible by then — this is only where choosing one begins"
+            : "before children appear at all. With `open on highlight` off this is the reveal: nothing shows until you cross it, and you keep going to pick one"
         switch layout {
         case .radial: return "how far OUT past the ring \(what)"
         case .vertical:
@@ -2550,6 +2581,329 @@ enum BuildStamp {
         case .mac:    "macOS"
         case .pad:    "iPad"
         case .phone:  "iPhone"
+        }
+    }
+}
+
+// MARK: - dragging the guides themselves
+
+/// What you can grab in the preview, and the ONE knob each one writes.
+enum GuideHandle: String, CaseIterable, Identifiable {
+    case center, ring, submenu, child      // circles, centred on the origin
+    case icon                              // an icon's own rim
+    case fan                               // the outermost child: two axes at once
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .center:  "center size"
+        case .ring:    "ring fit"
+        case .submenu: "submenu at"
+        case .child:   "child gap"
+        case .icon:    "icon size"
+        case .fan:     "child gap · spread"
+        }
+    }
+
+    var isCircle: Bool {
+        switch self { case .icon, .fan: false; default: true }
+    }
+
+    /// Where this circle is drawn right now, in stage points. Meaningless for
+    /// the two non-circles, which carry a position instead.
+    func radius(_ m: RadialMenuMetrics, _ style: RadialMenuStyle) -> CGFloat {
+        switch self {
+        case .center:  max(m.iconSize * max(style.originScale, 0.02), 3) / 2
+        case .ring:    m.ringRadius
+        case .submenu: m.submenuThreshold
+        case .child:   m.ringRadius + m.childGap
+        case .icon, .fan: 0
+        }
+    }
+}
+
+extension TunerView {
+
+    // MARK: where the two non-circle handles live
+
+    /// The seat the preview is currently sitting on.
+    var adjustSlot: Int {
+        let n = max(metrics.seats, 1)
+        return min(max(Int(previewPose.slot.rounded()), 0), n - 1)
+    }
+
+    /// The outermost child of that seat, if it has any. This is the `fan`
+    /// handle: pushed OUT it moves the whole fan away from the ring, swept
+    /// SIDEWAYS it opens or closes the spread. One grab, two knobs, which is how
+    /// the geometry actually works — the two are independent and a fan is
+    /// described by exactly those two numbers.
+    func fanPoint(_ m: RadialMenuMetrics) -> CGPoint? {
+        let items = visibleItems
+        guard layout == .radial, adjustSlot < items.count else { return nil }
+        let count = items[adjustSlot].children.count
+        guard count > 1 else { return nil }
+        let seat = m.seatAt(Double(adjustSlot))
+        let pa = atan2(seat.y, seat.x)
+        let stepDeg = max(style.childSpread / Double(count - 1), m.childMinStepDegrees)
+        let half = CGFloat(stepDeg * Double(count - 1) / 2 * .pi / 180)
+        let r = m.ringRadius + m.childGap
+        return CGPoint(x: cos(pa - half) * r, y: sin(pa - half) * r)
+    }
+
+    /// The nearest seat centre to a point — the `icon` handle grabs a rim, and a
+    /// rim only means anything relative to the icon it belongs to.
+    func nearestSeat(to p: CGPoint, _ m: RadialMenuMetrics) -> CGPoint? {
+        guard m.seats > 0 else { return nil }
+        return (0..<m.seats)
+            .map { m.seatAt(Double($0)) }
+            .min { hypot($0.x - p.x, $0.y - p.y) < hypot($1.x - p.x, $1.y - p.y) }
+    }
+
+    // MARK: the write-back
+
+    /// Rewrite the style so the grabbed handle lands under the finger.
+    ///
+    /// ⚠️ DIRECT where the formula is known; proportional only where it is not.
+    ///
+    /// The first version scaled everything proportionally — `wanted / current`
+    /// applied to whichever field fed it — on the grounds that `fit` then
+    /// appears in both terms and cancels. That is true and it is still how
+    /// `ring` and `icon` work, because the ring's packed radius is not
+    /// recoverable from the metrics.
+    ///
+    /// It was WRONG for `submenu`, and instructively so. `submenuThreshold` has
+    /// a floor: a trigger inside the icons would let a tangential drift pick
+    /// children you never reached for, so the solve clamps it to
+    /// `ring + icon/2`. Once clamped, the DRAWN radius stops responding to the
+    /// field — so `wanted / current` divided by a number that was no longer
+    /// telling the truth, and the ratio ran off to its limit while the circle
+    /// sat still. "I adjust submenu at and nothing happens" was exactly that.
+    ///
+    /// Where the forward formula is one multiply, inverting it is one divide and
+    /// no floor can confuse it. Proportional is the fallback, not the default.
+    func applyHandle(_ g: GuideHandle, at p: CGPoint, _ m: RadialMenuMetrics) {
+        let fit = max(m.fit, 0.01)
+        let r = hypot(p.x, p.y)
+        var st = config.style
+
+        switch g {
+        case .center:
+            // originRadius = iconSize x originScale / 2
+            st.originScale = clamp(2 * r / max(m.iconSize, 1), 0.05, 6)
+
+        case .ring:
+            // The only proportional one left: `packed` is solved from the gutter
+            // and never stored, so there is nothing to divide by.
+            guard m.ringRadius > 0.5 else { return }
+            let k = r / m.ringRadius
+            if st.responsive { st.ringSlack = clamp(st.ringSlack * k, 0.6, 2.5) }
+            else             { st.ringRadius = clamp(st.ringRadius * k, 40, 400) }
+
+        case .submenu:
+            // thresholdPt = ring x submenuReachRatio   (radial, responsive)
+            if st.responsive {
+                st.submenuReachRatio = clamp(r / max(m.ringRadius, 1), 0.1, 4)
+            } else {
+                st.submenuThreshold = clamp(r / fit, 20, 400)
+            }
+
+        case .child, .fan:
+            // childGap = icon x childGapRatio, measured from the RING outward.
+            let gap = r - m.ringRadius
+            if gap > 0.5 {
+                if st.responsive { st.childGapRatio = clamp(gap / max(m.iconSize, 1), 0.2, 3) }
+                else             { st.childRingGap = clamp(gap / fit, 20, 260) }
+            }
+            // ...and for the fan handle, the ANGLE off its parent is half the
+            // spread. Independent of the radius above, which is why one grab can
+            // carry both without either fighting the other.
+            if g == .fan, let seat = nearestFanParent(m) {
+                let pa = atan2(seat.y, seat.x)
+                var d = atan2(p.y, p.x) - pa
+                while d > .pi { d -= 2 * .pi }
+                while d < -.pi { d += 2 * .pi }
+                let count = max(visibleItems[adjustSlot].children.count, 2)
+                let spread = abs(Double(d)) * 180 / .pi * 2
+                st.childSpread = min(max(spread, 10), 180)
+                _ = count
+            }
+
+        case .icon:
+            // The rim is iconSize/2 from its OWN seat, so this one is measured
+            // from the seat and not from the origin.
+            // From the seat you grabbed, not the origin: `icon size` is a
+            // diameter and a diameter has no orbit.
+            guard let seat = nearestSeat(to: p, m) else { return }
+            let rim = hypot(p.x - seat.x, p.y - seat.y)
+            guard m.iconSize > 1 else { return }
+            st.iconSize = clamp(st.iconSize * (2 * rim / m.iconSize), 24, 160)
+        }
+
+        var c = config; c.style = st; config = c
+    }
+
+    private func nearestFanParent(_ m: RadialMenuMetrics) -> CGPoint? {
+        guard layout == .radial, adjustSlot < visibleItems.count else { return nil }
+        return m.seatAt(Double(adjustSlot))
+    }
+
+    private func clamp(_ v: CGFloat, _ lo: CGFloat, _ hi: CGFloat) -> CGFloat {
+        min(max(v, lo), hi)
+    }
+    private func clamp(_ v: Double, _ lo: Double, _ hi: Double) -> Double {
+        min(max(v, lo), hi)
+    }
+
+    // MARK: the layer
+
+    /// Every adjustable guide, drawn — including the ones normally switched off.
+    ///
+    /// Turning the mode on is what makes them visible, which avoids the whole
+    /// question of "can I grab a guide that is off". In adjust mode the answer
+    /// is always yes.
+    @ViewBuilder
+    func adjustLayer(origin: CGPoint, _ m: RadialMenuMetrics) -> some View {
+        // `.submenu` is deliberately NOT grabbable here, and the reason is
+        // provable rather than a matter of taste.
+        //
+        // The preview's pointer is placed at `submenuThreshold * 1.08` — it is
+        // DEFINED as a multiple of the very thing this circle sets. Drag the
+        // circle and the pointer moves with it, so their relationship never
+        // changes and nothing on screen can differ. The other preview pose puts
+        // the pointer on the seat, at `ring`, and the commit floor guarantees
+        // the threshold is at least `ring + icon/2` — so that pose is always
+        // inside it. Both poses sit on the expected side of the line by
+        // construction.
+        //
+        // A handle that cannot change what you are looking at is worse than no
+        // handle: you conclude the app is broken rather than that the question
+        // is unanswerable here. It is still DRAWN, in the measure colour, as a
+        // reference — and it is fully editable in live, where the pointer is
+        // your hand and owes the threshold nothing.
+        let handles: [GuideHandle] = layout == .radial
+            ? GuideHandle.allCases.filter { $0 != .submenu } : []
+        let tol = max(MenuPlatform.controlMinWidth * 0.8, 14)
+        let fan = fanPoint(m)
+
+        ZStack {
+            ForEach(handles) { g in
+                let live = grabbed == g
+                if g.isCircle {
+                    handleRing(radius: g.radius(m, style), live: live)
+                        .position(origin)
+                } else if g == .icon {
+                    // A RING round the icon, not a dot beside it.
+                    //
+                    // The dot was pinned at `seat + iconSize/2` in +x, which is
+                    // radially outward only for an icon that happens to sit at
+                    // three o'clock — everywhere else it drifted off to one
+                    // side, which is exactly what it looked like. A ring has no
+                    // side. It is also the shape of the thing it edits: the rim
+                    // IS what `icon size` moves.
+                    let seat = m.seatAt(Double(adjustSlot))
+                    handleRing(radius: m.iconSize / 2, live: live)
+                        .position(x: origin.x + seat.x, y: origin.y + seat.y)
+                } else if let f = fan {
+                    handleRing(radius: max(m.childIconSize / 2, 8), live: live)
+                        .position(x: origin.x + f.x, y: origin.y + f.y)
+                }
+            }
+
+            // Drawn, not grabbable — and in cyan, because in this mode orange
+            // means editable and this one is not.
+            if layout == .radial {
+                Circle()
+                    .strokeBorder(Color.cyan.opacity(0.35),
+                                  style: StrokeStyle(lineWidth: 1, dash: [2, 6]))
+                    .frame(width: m.submenuThreshold * 2, height: m.submenuThreshold * 2)
+                    .position(origin)
+            }
+
+            if let g = grabbed {
+                Text(readout(for: g, m))
+                    .font(.caption).monospacedDigit()
+                    .padding(.horizontal, 7).padding(.vertical, 3)
+                    .background(Capsule().fill(.black.opacity(0.65)))
+                    .foregroundStyle(m.submenuThresholdFloored && g == .submenu ? .yellow : .orange)
+                    .position(x: origin.x, y: origin.y - m.canvas / 2 + 16)
+            }
+        }
+        .allowsHitTesting(false)
+        .overlay {
+            Color.clear
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { v in
+                            let p = CGPoint(x: v.location.x - origin.x,
+                                            y: v.location.y - origin.y)
+                            if grabbed == nil {
+                                grabbed = pick(p, handles, fan, m, tol)
+                                guard grabbed != nil else { return }
+                            }
+                            guard let g = grabbed else { return }
+                            applyHandle(g, at: p, m)
+                        }
+                        .onEnded { _ in grabbed = nil }
+                )
+        }
+    }
+
+    /// Every handle is the same thing drawn at a different radius: an outline
+    /// you can grab. Orange throughout, because in this mode orange means
+    /// EDITABLE — the cyan measure guides still mean "measured", and the two
+    /// should never have shared a colour.
+    private func handleRing(radius: CGFloat, live: Bool) -> some View {
+        Circle()
+            .strokeBorder(live ? Color.orange : Color.orange.opacity(0.55),
+                          style: StrokeStyle(lineWidth: live ? 3.5 : 2,
+                                             dash: live ? [] : [4, 4]))
+            .frame(width: radius * 2, height: radius * 2)
+            .shadow(color: .black.opacity(live ? 0.5 : 0), radius: 3)
+    }
+
+    /// Nearest handle, and only if you were near one at all — a drag in open
+    /// space should do nothing rather than seize whatever happened to be closest
+    /// across the whole stage. Pucks beat circles at equal distance: they are
+    /// the smaller target, so losing a tie would make them unreachable.
+    private func pick(_ p: CGPoint, _ handles: [GuideHandle],
+                      _ fan: CGPoint?, _ m: RadialMenuMetrics,
+                      _ tol: CGFloat) -> GuideHandle? {
+        let r = hypot(p.x, p.y)
+        var best: (GuideHandle, CGFloat)?
+        func offer(_ g: GuideHandle, _ d: CGFloat, bias: CGFloat = 0) {
+            guard d <= tol else { return }
+            if best == nil || d - bias < best!.1 { best = (g, d - bias) }
+        }
+        for g in handles where g.isCircle {
+            offer(g, abs(r - g.radius(m, style)))
+        }
+        // The two small rings are measured from THEIR OWN centre, not from the
+        // origin — that is what makes them rims rather than orbits. They keep
+        // the tie-break bias: they are the smaller targets, so losing a tie to
+        // a big concentric circle passing nearby would make them unreachable.
+        if handles.contains(.icon) {
+            let seat = m.seatAt(Double(adjustSlot))
+            offer(.icon, abs(hypot(p.x - seat.x, p.y - seat.y) - m.iconSize / 2),
+                  bias: tol * 0.5)
+        }
+        if let f = fan, handles.contains(.fan) {
+            offer(.fan, abs(hypot(p.x - f.x, p.y - f.y) - max(m.childIconSize / 2, 8)),
+                  bias: tol * 0.5)
+        }
+        return best?.0
+    }
+
+    private func readout(for g: GuideHandle, _ m: RadialMenuMetrics) -> String {
+        switch g {
+        case .submenu where m.submenuThresholdFloored:
+            return "submenu at — FLOORED at \(pt(m.submenuThreshold)). It cannot come inside the icons."
+        case .submenu:  return "submenu at  \(pt(m.submenuThreshold))"
+        case .center:   return "center size  \(pt(g.radius(m, style)))"
+        case .ring:     return "ring  \(pt(m.ringRadius))"
+        case .child:    return "child gap  \(pt(m.childGap))"
+        case .icon:     return "icon size  \(pt(m.iconSize))"
+        case .fan:      return "child gap \(pt(m.childGap)) · spread \(String(format: "%.0f°", style.childSpread))"
         }
     }
 }

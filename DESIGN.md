@@ -1610,6 +1610,88 @@ animation in the app were switched off, would anything be in the wrong place?**
 If yes, something's position is being stored somewhere that is allowed to
 vanish.
 
+## The cue is a dial too (round 28, 2026-08-24)
+
+Audio arrived as thirteen sampled bubble pops and left as nine cues, eight of
+them generated from about forty lines of arithmetic. Three things worth keeping.
+
+**A cue judged one hit at a time is judged in the wrong conditions.** The bubbles
+sounded lovely in isolation and *"got annoying quickly"* in use, because a hand
+crossing a twelve-item ring fires four of them inside half a second. Every
+preview since has played each candidate three times alone AND four times fast,
+and the fast pass is the one that decides. Character is what you want from a
+sound and what you do not want from feedback.
+
+**Peak is not loudness, for the second time this project.** Levelling the clips
+on peak left a 10 dB spread to the ear: a sharp glass tap and a round bubble can
+share a peak sample and be nowhere near each other, because peak is one sample
+and hearing is a window. A 30 ms sliding RMS with a `tanh` soft knee instead of
+a hard ceiling brought the spread to 4.1 dB. The knee matters — hard-clipping a
+transient to make it fit turns it into the click you were trying to avoid.
+
+**Soft is one function.** The five gentle cues are the same oscillators, filters
+and decays as the percussive ones with a raised-cosine attack over 10–25 ms in
+place of an instant one. An instant attack IS the click: the ear reads the edge
+long before it reads the tone, which is why a 520 Hz sine is a thock and the
+same sine eased in is a push. It has to be a half-cosine rather than a ramp,
+because a ramp still has a corner at each end and a corner is broadband.
+
+And the reason none of it is sampled, beyond the licence: **a tick has a
+frequency, a decay and an envelope, and those are dials.** Sampling one freezes
+an answer that ought to stay adjustable — which is the argument this entire
+project makes about layout, and it did not stop being true when the output moved
+from pixels to air.
+
+**Left undone, deliberately.** The cue parameters are constants inside
+`render(_:detune:)`. Everything this project believes says they should be knobs
+in the panel next to `icon size` — frequency, attack, decay, and the tuner would
+tune sound the way it tunes geometry. That is the obvious next move whenever the
+cue is revisited for Quads, and it is a bigger change than picking a preset from
+a list, which is why it is a note rather than a commit.
+
+## Dragging the answer instead of the question (round 29, 2026-08-24)
+
+*"I think it would be even more intuitive to click and drag on the outline of a
+category, center ring, submenu/child gap, spread, etc., directly in the preview
+pane. Any visible guide can be adjusted."*
+
+The whole layout is a one-way DAG — style in, metrics out — so this asks to run
+it backwards, which sounds like the hard version of the problem. It is not, and
+the reason generalises.
+
+**Ratios cancel.** Every drawn radius is proportional to the field that produced
+it, so `wanted / current` is a ratio of two quantities measured in the same
+space. `fit` appears in both terms and disappears. So does the difference
+between `responsive` (a ratio) and absolute (a point value) — the same
+multiplier is correct for `ringSlack` and for `ringRadius`. No inversion of
+`resolved()` anywhere, and no branch on `fit`.
+
+**Except where a value is clamped.** `submenuThreshold` has a commit floor. Once
+clamped, the drawn radius stops responding to the field, so `wanted / current`
+divides by a number that is no longer telling the truth — the ratio ran off to
+its limit while the circle sat still. Where the forward formula is one multiply,
+invert it directly instead: one divide, and no floor can confuse it.
+Proportional is now the FALLBACK, used only for `ring` and `icon` where the
+packed radius genuinely is not recoverable.
+
+**A handle that cannot demonstrate itself is worse than no handle.** Chasing why
+dragging `submenu at` looked inert turned up something better than a bug: the
+preview's pointer is placed at `submenuThreshold * 1.08`. It is DEFINED as a
+multiple of the thing the circle sets, so the two can never disagree — and the
+other pose sits at `ring`, which the floor guarantees is inside. Both poses are
+on the expected side of the line by construction. It is not hard to see in
+preview, it is impossible. So the circle is drawn in the measure colour, is not
+grabbable, and says why. Same family as a dead zone shipped at zero with no
+caption: a control has to be able to show its effect, or admit it cannot.
+
+**A dot beside a thing is a proxy for the thing.** The first pass put pucks on
+the icon rim and the outermost child, and the icon puck was pinned at
+`seat + iconSize/2` in **+x** — radially outward only for an icon at three
+o'clock, drifting to one side everywhere else. Replacing both with outlines
+fixed it by construction and read better anyway: the rim IS what `icon size`
+moves. Orange now means editable throughout, and the cyan measure guides keep
+their own meaning.
+
 ## Where this is heading
 
 The menu is meant to be summoned **on whatever you're gazing at** — an object, empty space, or

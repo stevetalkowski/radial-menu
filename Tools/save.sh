@@ -31,18 +31,25 @@ done
 
 git add -A
 
+# NOTHING TO COMMIT IS NOT NOTHING TO DO.
+#
+# This used to `exit 0` here, which meant `./Tools/save.sh push` right after a
+# merge printed "nothing to save" and quietly skipped the push — the branch was
+# committed, ahead of its remote, and the one command whose name is "push" did
+# not push. An early return that skips work the caller explicitly asked for is a
+# bug wearing a tidy-looking guard clause.
 if git diff --cached --quiet; then
-  echo "nothing to save — working tree matches HEAD"
-  exit 0
+  echo "nothing new to commit"
+else
+  MSG="${1:-checkpoint $(date '+%Y-%m-%d %H:%M')}"
+  [ "$MSG" = "push" ] && MSG="checkpoint $(date '+%Y-%m-%d %H:%M')"
+  git commit -q -m "$MSG" || exit 1
+
+  echo "saved: $MSG"
+  git --no-pager log --oneline -1
+  CHANGED=$(git --no-pager show --stat --oneline HEAD | tail -1)
+  echo "  $CHANGED"
 fi
-
-MSG="${1:-checkpoint $(date '+%Y-%m-%d %H:%M')}"
-git commit -q -m "$MSG" || exit 1
-
-echo "saved: $MSG"
-git --no-pager log --oneline -1
-CHANGED=$(git --no-pager show --stat --oneline HEAD | tail -1)
-echo "  $CHANGED"
 
 if git remote get-url origin >/dev/null 2>&1; then
   AHEAD=$(git rev-list --count @{u}..HEAD 2>/dev/null || echo "?")
@@ -53,5 +60,13 @@ fi
 
 # `./Tools/save.sh push` saves AND pushes, for when you want both.
 if [ "${2:-}" = "push" ] || [ "${1:-}" = "push" ]; then
-  git push
+  # A BRANCH nobody has pushed yet has no upstream, and plain `git push` answers
+  # that with a paragraph about --set-upstream. Working on a branch should not
+  # cost you a lecture the first time and nothing every time after.
+  if git rev-parse --abbrev-ref '@{u}' >/dev/null 2>&1; then
+    git push
+  else
+    echo "  first push of $(git branch --show-current) — setting upstream"
+    git push -u origin HEAD
+  fi
 fi
