@@ -1172,21 +1172,37 @@ children land at 314. Pick a child and your hand is 140 pt past a dot that
 stopped moving. Blind in the one place blindness costs something, at exactly the
 setting somebody chose for tidiness.
 
-`pointerBound` makes it the smallest thing that still covers the current state:
+The first attempt at `pointerBound` had three cases, and the middle one raised
+the bound to the sub-menu TRIGGER whenever a parent was highlighted — so you
+could get to the children, and so the bound would already be at the trigger when
+they opened and nothing would jump.
 
-| state | bound |
-|---|---|
-| children out | everything — they are what you are reaching for |
-| a parent, still closed | at least the trigger, so you can GET to them |
-| anything else | the dial, because there is nothing out there |
+Steve found it immediately: *"at 0, the pointer is NOT pinning to the radius of
+the first category. It's reaching out to the submenu radius."*
 
-Taking the MAX rather than switching outright is what keeps it jump-free: by the
-time a sub-menu opens the bound is already at the trigger, and the trigger is
-where the crossing happens. The dot never leaps to catch up.
+Both halves of that reasoning were wrong.
 
-The general shape, which is the part worth keeping: a limit that says "further
-buys you nothing" has to know what is in front of you. A fixed one is either too
-tight somewhere or pointless everywhere.
+**The dot does not need to reach the trigger.** Your HAND does, and the pick
+reads the raw offset — the clamp has only ever been a display bound. All the rule
+bought was a `pointer reach` of 0 that pinned to the ring on a plain category and
+to the trigger on a parent. A floor that depends on which icon you happen to be
+over is not a floor, and on a twelve-item menu it made the knob look inert
+wherever it mattered.
+
+**And the jump was never avoidable.** Pin the dot at the ring, then follow the
+hand out to children at 314 pt, and it has to cross the gap between at some
+point. The question is only WHERE. Better at the moment of commitment, where the
+jump reads as "you are in the sub-menu now", than smeared into a bound that
+quietly stops meaning what the slider says.
+
+So: two cases. Children out → everything. Otherwise → the dial, whatever is
+under you. At the shipped default of 1 there is no clamp and no jump at all; the
+jump exists only at settings where hard pinning is the thing being asked for.
+
+The general shape is still worth keeping, but stated more carefully than last
+round: a limit that says "further buys you nothing" has to know what is in front
+of you — and "in front of you" means what you have COMMITTED to, not what you
+happen to be pointing at.
 
 ## Where this is heading
 
